@@ -1,0 +1,13 @@
+// Gap 7 - Delegation enabled or Kerberos pre-authentication disabled on a user/service/computer account
+// DONT_REQ_PREAUTH -> targeted AS-REP roast; TRUSTED_FOR_DELEGATION / AllowedToDelegateTo -> impersonation.
+let KnownDelegationTargets = dynamic([]);   // TUNE: accounts/hosts that legitimately need delegation
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| extend AF = tostring(AdditionalFields)
+| where ActionType has_any ("Delegation", "Pre-auth", "Preauth", "Pre-Authentication", "User Account Control", "Account Control")
+    or AF has_any ("TRUSTED_FOR_DELEGATION", "TrustedForDelegation", "TRUSTED_TO_AUTH_FOR_DELEGATION",
+                   "DONT_REQ_PREAUTH", "DoesNotRequirePreAuth", "msDS-AllowedToDelegateTo")
+| where AF has_any ("DELEGATION", "Delegat", "PREAUTH", "PreAuth", "AllowedToDelegateTo")
+| where not(TargetAccountUpn in~ (KnownDelegationTargets)) and not(TargetDeviceName in~ (KnownDelegationTargets))
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, TargetAccountUpn,
+    TargetDeviceName, DeviceName, AdditionalFields

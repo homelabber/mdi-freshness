@@ -1,0 +1,13 @@
+// Gap 10 - Inter-domain trust account (<TRUSTEDDOMAIN>$) authenticating like a normal account
+// Five Eyes AD guidance (Sep 2026): one-way trust bypass by obtaining a TGT for the trust account.
+let TrustAccounts = dynamic([]);   // TUNE: NetBIOS names of trusted/trusting domains with a trailing $, e.g. "PARTNERDOM$"
+let DerivedTrustAccounts = IdentityLogonEvents
+    | where Timestamp > ago(14d) and isnotempty(AccountDomain)
+    | summarize by T = strcat(toupper(tostring(split(AccountDomain, ".")[0])), "$");
+IdentityLogonEvents
+| where Timestamp > ago(1h)
+| where AccountName endswith "$"
+| where AccountName in~ (TrustAccounts) or toupper(AccountName) in (DerivedTrustAccounts)
+| where Protocol in~ ("Kerberos", "Ntlm")
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, Protocol, LogonType,
+    DeviceName, IPAddress, DestinationDeviceName, FailureReason

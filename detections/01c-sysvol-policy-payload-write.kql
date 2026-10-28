@@ -1,0 +1,14 @@
+// Gap 1c - Executable / script / scheduled-task payloads written into SYSVOL Policies (MDE on DCs)
+// GPMC/remote writes arrive over SMB, so the writer is in RequestAccountName, not InitiatingProcessAccountName.
+let GpoAdmins = dynamic([]);   // TUNE: same list as 01a
+DeviceFileEvents
+| where Timestamp > ago(1h)
+| where ActionType in ("FileCreated", "FileModified", "FileRenamed")
+| where FolderPath has @"\SYSVOL\" and FolderPath has @"\Policies\"
+| where FileName has_any (".exe", ".dll", ".ps1", ".bat", ".cmd", ".vbs", ".js", ".hta", ".msi", ".scr")
+    or FileName in~ ("ScheduledTasks.xml", "Files.xml", "Services.xml", "Registry.pol", "scripts.ini", "psscripts.ini")
+| extend Writer = iff(isnotempty(RequestAccountName), RequestAccountName, InitiatingProcessAccountName)
+| where not(Writer in~ (GpoAdmins))
+| project Timestamp, ReportId, DeviceId, DeviceName, ActionType, FolderPath, FileName, SHA256,
+    RequestAccountName, RequestAccountDomain, RequestSourceIP, RequestProtocol,
+    InitiatingProcessAccountName, InitiatingProcessFileName

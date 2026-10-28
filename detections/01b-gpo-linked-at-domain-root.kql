@@ -1,0 +1,10 @@
+// Gap 1b - gPLink written on the domain head object (DC=...,DC=...) = GPO applies to every machine
+// Context: PAYLOAD actor linked its malicious GPOs at the domain root to hit all hosts at once.
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| extend AF = tostring(AdditionalFields)
+| where AF has "gPLink" or ActionType has_any ("gPLink", "Group Policy Link", "GPO Link")
+// a target DN made only of DC= components is the domain head
+| where AF matches regex @"(?i)""\s*DC=[^"",]+(,\s*DC=[^"",]+)+\s*"""
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, DeviceName, IPAddress,
+    DestinationDeviceName, AdditionalFields

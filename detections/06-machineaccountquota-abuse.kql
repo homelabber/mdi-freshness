@@ -1,0 +1,19 @@
+// Gap 6 - Computer account created by a non-privileged user (ms-DS-MachineAccountQuota abuse)
+// First step of RBCD, ResetNightmare and Certighost chains.
+let ApprovedJoiners = dynamic([]);   // TUNE: domain-join / imaging accounts, e.g. "svc-sccm","svc-mdt"
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| where ActionType == "Device Account Created"
+    or (ActionType has "Account Created" and isnotempty(TargetDeviceName))
+| where not(AccountName in~ (ApprovedJoiners)) and not(AccountName endswith "$")
+| extend CreatorKey = tolower(AccountName)
+| join kind=leftouter (
+    IdentityInfo
+    | where Timestamp > ago(14d)
+    | summarize arg_max(Timestamp, Tags) by CreatorKey = tolower(AccountName)
+    | project CreatorKey, CreatorTags = tostring(Tags)
+  ) on CreatorKey
+// accounts MDI tags as sensitive/admin are expected to create computer objects
+| where not(CreatorTags has_any ("Sensitive", "Admin"))
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn,
+    NewComputer = TargetDeviceName, DeviceName, IPAddress, AdditionalFields

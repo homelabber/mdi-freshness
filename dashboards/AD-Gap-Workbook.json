@@ -1,0 +1,151 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "name": "intro",
+      "content": {
+        "json": "## AD detection gaps (2026) - posture & hunting\nTiles for gaps 3, 4, 11, 12. Detections for gaps 1-10 are deployed separately as Defender XDR custom detections. Requires MDI/MDE tables streamed to this workspace (Defender XDR connector)."
+      }
+    },
+    {
+      "type": 9,
+      "name": "params",
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "tr",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 2592000000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 1209600000
+                },
+                {
+                  "durationMs": 2592000000
+                },
+                {
+                  "durationMs": 7776000000
+                }
+              ]
+            }
+          },
+          {
+            "id": "ea",
+            "version": "KqlParameterItem/1.0",
+            "name": "EdgeAccounts",
+            "label": "Edge/VPN bind accounts (comma-separated sAMAccountNames)",
+            "type": 1,
+            "value": "svc-fortigate,svc-vpn-ldap"
+          }
+        ]
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile0",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "IdentityDirectoryEvents\n| where TimeGenerated {TimeRange} and ActionType has \"Encryption\"\n| extend AF = todynamic(AdditionalFields)\n| mv-apply kv = AF on (\n    extend k = tostring(bag_keys(kv)[0]), v = tostring(kv[tostring(bag_keys(kv)[0])])\n    | summarize NewValue = take_anyif(v, k matches regex @\"(?i)^\\s*TO\\b\"), OldValue = take_anyif(v, k matches regex @\"(?i)^\\s*FROM\\b\")\n  )\n| extend NewInt = toint(NewValue)\n| extend RC4WithoutAES = (isnotnull(NewInt) and binary_and(NewInt, 4) != 0 and binary_and(NewInt, 24) == 0)\n    or (NewValue has \"RC4\" and not(NewValue has \"AES\"))\n| summarize arg_max(TimeGenerated, NewValue, OldValue, RC4WithoutAES), Changes = count(), ChangedBy = make_set(AccountName, 10)\n    by TargetAccountUpn, TargetDeviceName\n| project LastChange = TimeGenerated, TargetAccountUpn, TargetDeviceName, OldValue, NewValue, RC4WithoutAES, Changes, ChangedBy\n| order by RC4WithoutAES desc, LastChange desc",
+        "size": 0,
+        "title": "Gap 11 - Encryption type changes (RC4WithoutAES = 1 is the risk)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile1",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "IdentityLogonEvents\n| where TimeGenerated {TimeRange} and ActionType == \"LogonSuccess\" and Protocol in~ (\"Kerberos\", \"Ntlm\")\n| summarize Logons = count() by Protocol, Day = bin(TimeGenerated, 1d)",
+        "size": 0,
+        "title": "Gap 11 - Kerberos vs NTLM successful logons",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile2",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "IdentityLogonEvents\n| where TimeGenerated {TimeRange} and ActionType == \"LogonSuccess\"\n| where isnotempty(DestinationDeviceName) and Protocol in~ (\"Kerberos\", \"Ntlm\")\n| summarize Krb = countif(Protocol =~ \"Kerberos\"), Ntlm = countif(Protocol =~ \"Ntlm\") by DestinationDeviceName, Day = bin(TimeGenerated, 1d)\n| extend NtlmRatio = round(todouble(Ntlm) / (Krb + Ntlm), 2)\n| order by DestinationDeviceName asc, Day asc\n| extend PrevRatio = prev(NtlmRatio), PrevHost = prev(DestinationDeviceName)\n| where PrevHost == DestinationDeviceName and PrevRatio < 0.1 and NtlmRatio > 0.5\n| project Day, DestinationDeviceName, PrevRatio, NtlmRatio, Krb, Ntlm",
+        "size": 0,
+        "title": "Gap 3 - Services that flipped from Kerberos to NTLM",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile3",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let EdgeAccounts = split(replace_string(\"{EdgeAccounts}\", \" \", \"\"), \",\");\nunion\n    (IdentityQueryEvents | where TimeGenerated {TimeRange} and AccountName in~ (EdgeAccounts) | extend Kind = \"Query\", Detail = QueryType),\n    (IdentityLogonEvents | where TimeGenerated {TimeRange} and AccountName in~ (EdgeAccounts) | extend Kind = \"Logon\", Detail = LogonType)\n| summarize Events = count(), DistinctDetails = dcount(Detail), SrcIPs = make_set(IPAddress, 20) by AccountName, Kind, Day = bin(TimeGenerated, 1d)\n| order by AccountName asc, Day asc",
+        "size": 0,
+        "title": "Gap 4 - Edge/VPN bind account activity",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile4",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "IdentityQueryEvents\n| where TimeGenerated {TimeRange}\n| where Query has_any (\"ms-Mcs-AdmPwd\", \"msLAPS-Password\", \"msLAPS-EncryptedPassword\", \"msDS-ManagedPassword\")\n| extend Secret = case(Query has \"msDS-ManagedPassword\", \"gMSA\", \"LAPS\")\n| summarize Reads = count(), Targets = dcount(QueryTarget), Days = dcount(bin(TimeGenerated, 1d)),\n    SampleTargets = make_set(QueryTarget, 10), SourceDevices = make_set(DeviceName, 10) by AccountName, Secret\n| order by Targets desc",
+        "size": 0,
+        "title": "Gap 12 - LAPS / gMSA password readers",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile5",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let Secrets = dynamic([\"ms-Mcs-AdmPwd\", \"msLAPS-Password\", \"msLAPS-EncryptedPassword\", \"msDS-ManagedPassword\"]);\nlet Prior = IdentityQueryEvents\n    | where TimeGenerated between (ago(30d) .. ago(7d)) and Query has_any (Secrets)\n    | distinct AccountName;\nIdentityQueryEvents\n| where TimeGenerated > ago(7d) and Query has_any (Secrets)\n| where AccountName !in (Prior)\n| summarize FirstSeen = min(TimeGenerated), Reads = count(), Targets = dcount(QueryTarget), SampleTargets = make_set(QueryTarget, 10)\n    by AccountName, DeviceName\n| order by Targets desc",
+        "size": 0,
+        "title": "Gap 12 - New LAPS / gMSA readers (last 7 days vs prior 23)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    }
+  ],
+  "fallbackResourceIds": [],
+  "fromTemplateId": "sentinel-UserWorkbook",
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

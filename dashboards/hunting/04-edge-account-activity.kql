@@ -1,0 +1,7 @@
+// Dashboard tile for gap 4: daily activity of firewall/VPN bind accounts (queries, logons, source IPs)
+let EdgeAccounts = dynamic([]);   // TUNE: same list as detections 04a/04b
+union
+    (IdentityQueryEvents | where Timestamp > ago(30d) and AccountName in~ (EdgeAccounts) | extend Kind = "Query", Detail = QueryType),
+    (IdentityLogonEvents | where Timestamp > ago(30d) and AccountName in~ (EdgeAccounts) | extend Kind = "Logon", Detail = LogonType)
+| summarize Events = count(), DistinctDetails = dcount(Detail), SrcIPs = make_set(IPAddress, 20) by AccountName, Kind, Day = bin(Timestamp, 1d)
+| order by AccountName asc, Day asc

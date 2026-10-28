@@ -1,0 +1,6 @@
+// Run first: which ActionTypes and AdditionalFields keys your MDI sensors actually emit
+union IdentityDirectoryEvents, IdentityQueryEvents, IdentityLogonEvents
+| where Timestamp > ago(14d)
+| extend Keys = bag_keys(todynamic(AdditionalFields))
+| summarize Count = count(), Keys = make_set(Keys, 50), SampleFields = take_any(AdditionalFields) by Type, ActionType
+| order by Type asc, Count desc

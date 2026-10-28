@@ -1,0 +1,12 @@
+// Gap 1a - GPO created/modified/linked by an account that is not an approved GPO admin
+// Context: Kaspersky GERT "PAYLOAD" GPO extortion (Sep 2026). MDI only alerts on GPOs that disable Defender AV.
+let GpoAdmins = dynamic([]);   // TUNE: sAMAccountNames allowed to manage GPOs, e.g. "svc-gpo-mgmt"
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| extend AF = tostring(AdditionalFields)
+| where ActionType has_any ("Group Policy", "GPO", "gPLink")
+    or AF has_any ("gPLink", "groupPolicyContainer", "gPCFileSysPath", "gPCMachineExtensionNames")
+| where not(AccountName in~ (GpoAdmins))
+| where not(AccountName endswith "$")
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, DeviceName, IPAddress,
+    DestinationDeviceName, AdditionalFields

@@ -1,0 +1,5 @@
+// Dashboard tile for gap 11: daily Kerberos vs NTLM successful authentications seen by MDI
+IdentityLogonEvents
+| where Timestamp > ago(30d) and ActionType == "LogonSuccess" and Protocol in~ ("Kerberos", "Ntlm")
+| summarize Logons = count() by Protocol, Day = bin(Timestamp, 1d)
+| render timechart

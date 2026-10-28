@@ -1,0 +1,19 @@
+// Gap 9 - NTDS.dit theft: ntdsutil IFM/snapshot, ntds.dit copies, esentutl /vss, and shadow copies on DCs (MDE)
+// DCs are derived from the hosts MDI sees authenticating requests; add names to ExtraDCs if needed.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let DCs = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+| extend OnDC = ShortName in (DCs)
+| where (FileName =~ "ntdsutil.exe" and ProcessCommandLine has_any ("ifm", "create full", "snapshot"))
+    or (ProcessCommandLine has "ntds.dit" and ProcessCommandLine has_any ("copy", "esentutl", "robocopy", "xcopy", "HarddiskVolumeShadowCopy"))
+    or (FileName =~ "esentutl.exe" and ProcessCommandLine has "/vss")
+    or (OnDC and FileName =~ "vssadmin.exe" and ProcessCommandLine has "create" and ProcessCommandLine has "shadow")
+    or (OnDC and FileName =~ "wmic.exe" and ProcessCommandLine has "shadowcopy" and ProcessCommandLine has "create")
+    or (OnDC and FileName =~ "diskshadow.exe")
+| project Timestamp, ReportId, DeviceId, DeviceName, OnDC, AccountName, AccountDomain, AccountSid, FileName,
+    ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine

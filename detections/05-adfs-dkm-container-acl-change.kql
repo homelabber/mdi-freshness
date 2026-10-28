@@ -1,0 +1,10 @@
+// Gap 5 - Permission/owner change on the AD FS DKM container (CVE-2026-56155, CISA KEV 14 Jul 2026)
+// MDI alerts on the later DKM key read / Golden SAML use, not on the ACL grant that enables it.
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| extend AF = tostring(AdditionalFields)
+| where AF has "CN=ADFS,CN=Microsoft,CN=Program Data"
+| where ActionType has_any ("Permission", "ACL", "Security Descriptor", "nTSecurityDescriptor", "Owner")
+    or AF has_any ("nTSecurityDescriptor", "ACE", "Owner")
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, DeviceName, IPAddress,
+    AdditionalFields

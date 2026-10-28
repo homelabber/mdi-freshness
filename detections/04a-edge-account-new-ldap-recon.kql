@@ -1,0 +1,20 @@
+// Gap 4a - Firewall/VPN LDAP-bind service account running queries it has never run, or from a non-appliance IP
+// Context: CL-STA-1132 (PAN-OS CVE-2026-0300), Qilin affiliates and PAYLOAD actor all pivoted from edge devices.
+let EdgeAccounts = dynamic([]);   // TUNE: appliance bind accounts, e.g. "svc-paloalto-ldap","svc-fortigate"
+let EdgeIPs = dynamic([]);        // TUNE: appliance source IPs (leave empty to skip the IP check)
+let Baseline = IdentityQueryEvents
+    | where Timestamp between (ago(30d) .. ago(1h))
+    | where AccountName in~ (EdgeAccounts)
+    | distinct AccountName = tolower(AccountName), QueryType, Query;
+IdentityQueryEvents
+| where Timestamp > ago(1h)
+| where AccountName in~ (EdgeAccounts)
+| extend AccountKey = tolower(AccountName)
+| join kind=leftanti Baseline on $left.AccountKey == $right.AccountName, QueryType, Query
+| summarize arg_max(Timestamp, ReportId, DeviceName, AccountDomain, AccountUpn),
+    NewQueries = dcount(Query), SampleQueries = make_set(Query, 10), SrcIPs = make_set(IPAddress, 20)
+    by AccountName
+| extend FromNonApplianceIP = set_difference(SrcIPs, EdgeIPs)
+| where NewQueries >= 5 or (array_length(EdgeIPs) > 0 and array_length(FromNonApplianceIP) > 0)
+| project Timestamp, ReportId, AccountName, AccountDomain, AccountUpn, DeviceName, NewQueries,
+    SampleQueries, SrcIPs, FromNonApplianceIP

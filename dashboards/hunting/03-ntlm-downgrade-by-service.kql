@@ -1,0 +1,10 @@
+// Dashboard tile for gap 3: services whose daily NTLM share jumped from <10% to >50% (Kerberos failure / KerberLoss symptom)
+IdentityLogonEvents
+| where Timestamp > ago(14d) and ActionType == "LogonSuccess"
+| where isnotempty(DestinationDeviceName) and Protocol in~ ("Kerberos", "Ntlm")
+| summarize Krb = countif(Protocol =~ "Kerberos"), Ntlm = countif(Protocol =~ "Ntlm") by DestinationDeviceName, Day = bin(Timestamp, 1d)
+| extend NtlmRatio = round(todouble(Ntlm) / (Krb + Ntlm), 2)
+| order by DestinationDeviceName asc, Day asc
+| extend PrevRatio = prev(NtlmRatio), PrevHost = prev(DestinationDeviceName)
+| where PrevHost == DestinationDeviceName and PrevRatio < 0.1 and NtlmRatio > 0.5
+| project Day, DestinationDeviceName, PrevRatio, NtlmRatio, Krb, Ntlm

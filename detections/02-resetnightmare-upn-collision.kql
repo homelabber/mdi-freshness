@@ -1,0 +1,21 @@
+// Gap 2 - ResetNightmare (CVE-2026-27912): UPN set to a bare value equal to ANOTHER account's sAMAccountName
+// The attacker then requests a TGT as NT-ENTERPRISE and resets the victim's password via kpasswd (464).
+let Sams = IdentityInfo
+    | where Timestamp > ago(14d)
+    | where isnotempty(AccountName)
+    | summarize arg_max(Timestamp, AccountUpn, CriticalityLevel) by AccountName
+    | project VictimSam = tolower(AccountName), VictimUpn = AccountUpn, VictimCriticality = CriticalityLevel;
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| where ActionType has "Upn"
+| extend AF = todynamic(AdditionalFields)
+| mv-apply kv = AF on (
+    extend k = tostring(bag_keys(kv)[0])
+    | where k matches regex @"(?i)^\s*TO\b.*upn"
+    | summarize NewUpn = tolower(trim(@"\s", tostring(take_any(kv[k]))))
+  )
+| where isnotempty(NewUpn) and NewUpn !contains "@"     // bare UPN without a suffix is the exploit primitive
+| join kind=inner Sams on $left.NewUpn == $right.VictimSam
+| where tolower(TargetAccountUpn) != tolower(VictimUpn)
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, TargetAccountUpn,
+    NewUpn, CollidesWith = VictimUpn, VictimCriticality, DeviceName, IPAddress, AdditionalFields

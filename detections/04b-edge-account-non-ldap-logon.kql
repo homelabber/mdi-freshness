@@ -1,0 +1,11 @@
+// Gap 4b - Firewall/VPN service account used for anything other than LDAP binds from the appliance
+// (interactive, RDP, SMB/resource access, or binds from another IP = stolen credential reuse)
+let EdgeAccounts = dynamic([]);   // TUNE: same list as 04a
+let EdgeIPs = dynamic([]);        // TUNE: same list as 04a
+IdentityLogonEvents
+| where Timestamp > ago(1h)
+| where AccountName in~ (EdgeAccounts)
+| where not(LogonType has "LDAP")
+    or (array_length(EdgeIPs) > 0 and not(IPAddress in (EdgeIPs)))
+| project Timestamp, ReportId, ActionType, AccountName, AccountDomain, AccountUpn, LogonType, Protocol,
+    DeviceName, IPAddress, DestinationDeviceName, FailureReason

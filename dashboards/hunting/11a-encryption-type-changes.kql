@@ -1,0 +1,15 @@
+// Dashboard tile for gap 11: msDS-SupportedEncryptionTypes changes, flagging values that allow RC4 without AES
+IdentityDirectoryEvents
+| where Timestamp > ago(30d) and ActionType has "Encryption"
+| extend AF = todynamic(AdditionalFields)
+| mv-apply kv = AF on (
+    extend k = tostring(bag_keys(kv)[0]), v = tostring(kv[tostring(bag_keys(kv)[0])])
+    | summarize NewValue = take_anyif(v, k matches regex @"(?i)^\s*TO\b"), OldValue = take_anyif(v, k matches regex @"(?i)^\s*FROM\b")
+  )
+| extend NewInt = toint(NewValue)
+| extend RC4WithoutAES = (isnotnull(NewInt) and binary_and(NewInt, 4) != 0 and binary_and(NewInt, 24) == 0)
+    or (NewValue has "RC4" and not(NewValue has "AES"))
+| summarize arg_max(Timestamp, NewValue, OldValue, RC4WithoutAES), Changes = count(), ChangedBy = make_set(AccountName, 10)
+    by TargetAccountUpn, TargetDeviceName
+| project LastChange = Timestamp, TargetAccountUpn, TargetDeviceName, OldValue, NewValue, RC4WithoutAES, Changes, ChangedBy
+| order by RC4WithoutAES desc, LastChange desc

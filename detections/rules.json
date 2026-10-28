@@ -1,0 +1,179 @@
+[
+  {
+    "file": "01a-gpo-change-by-non-gpo-admin.kql",
+    "deploy": true,
+    "displayName": "AD Gap 1a - GPO changed by non-GPO admin",
+    "severity": "medium",
+    "category": "Persistence",
+    "mitreTechniques": ["T1484.001"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "A Group Policy object was created, modified or linked by an account that is not on the approved GPO-admin list. Malicious GPOs were used in 2026 for domain-wide ransomware and extortion (Kaspersky GERT PAYLOAD case).",
+    "recommendedActions": "Confirm the change with the GPO owner. Review the GPO's settings, scheduled tasks and scripts in SYSVOL. If unauthorized, unlink the GPO, reset the actor's credentials and check for 1b/1c alerts."
+  },
+  {
+    "file": "01b-gpo-linked-at-domain-root.kql",
+    "deploy": true,
+    "displayName": "AD Gap 1b - GPO linked at domain root",
+    "severity": "high",
+    "category": "Impact",
+    "mitreTechniques": ["T1484.001"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "The gPLink attribute of the domain head object was changed, so a GPO now applies to every computer and user in the domain. Used by the PAYLOAD actor to push encryption tasks domain-wide.",
+    "recommendedActions": "Treat as urgent. Identify the newly linked GPO, inspect its scheduled tasks/scripts/files, unlink it if not approved and contain the actor account."
+  },
+  {
+    "file": "01c-sysvol-policy-payload-write.kql",
+    "deploy": true,
+    "displayName": "AD Gap 1c - Executable or task payload written to SYSVOL Policies",
+    "severity": "medium",
+    "category": "Execution",
+    "mitreTechniques": ["T1484.001", "T1053.005"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "device", "identifier": "deviceId" }],
+    "description": "An executable, script or Group Policy Preferences task/file definition was written under SYSVOL\\Policies on a domain controller by an account not on the GPO-admin list.",
+    "recommendedActions": "Check the file hash and contents, find the GPO GUID in the path and review who changed it. Correlate with Gap 1a/1b alerts."
+  },
+  {
+    "file": "02-resetnightmare-upn-collision.kql",
+    "deploy": true,
+    "displayName": "AD Gap 2 - UPN set to another account's sAMAccountName (ResetNightmare)",
+    "severity": "high",
+    "category": "PrivilegeEscalation",
+    "mitreTechniques": ["T1098", "T1558"],
+    "period": "1H",
+    "impactedAssets": [
+      { "type": "user", "identifier": "accountName" },
+      { "type": "user", "identifier": "targetAccountUpn" }
+    ],
+    "description": "An account's userPrincipalName was set to a bare value (no @suffix) that equals another account's sAMAccountName. This is the setup step for ResetNightmare (CVE-2026-27912), which lets the attacker reset the colliding account's password via kpasswd.",
+    "recommendedActions": "Revert the UPN, check whether the colliding account's password was reset in the following hour, verify the April 2026 cumulative update is installed on all DCs and review who holds write access to userPrincipalName."
+  },
+  {
+    "file": "03-kerberloss-invisible-unicode.kql",
+    "deploy": true,
+    "displayName": "AD Gap 3 - Invisible Unicode in UPN/SPN/name (KerberLoss)",
+    "severity": "medium",
+    "category": "DefenseEvasion",
+    "mitreTechniques": ["T1036", "T1098"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "An identity attribute was written with zero-width or other invisible Unicode characters, a technique used by KerberLoss (CVE-2026-25177) to create look-alike UPNs/SPNs that break Kerberos and force NTLM fallback.",
+    "recommendedActions": "Inspect the raw attribute value, remove the duplicate/look-alike object and check the NTLM-downgrade tile on the dashboard for affected services."
+  },
+  {
+    "file": "04a-edge-account-new-ldap-recon.kql",
+    "deploy": true,
+    "displayName": "AD Gap 4a - Edge-device service account running new LDAP queries",
+    "severity": "high",
+    "category": "Discovery",
+    "mitreTechniques": ["T1087.002", "T1069.002", "T1133"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "A firewall/VPN LDAP bind account ran queries not seen in its 30-day baseline, or connected from an IP that is not the appliance. Edge-device compromise followed by AD recon with the appliance's own account was seen in 2026 (PAN-OS CVE-2026-0300, Qilin, PAYLOAD).",
+    "recommendedActions": "Check the appliance for compromise and current advisories, rotate the bind account password and restrict it to the appliance IP and least privilege."
+  },
+  {
+    "file": "04b-edge-account-non-ldap-logon.kql",
+    "deploy": true,
+    "displayName": "AD Gap 4b - Edge-device service account used outside LDAP",
+    "severity": "high",
+    "category": "LateralMovement",
+    "mitreTechniques": ["T1078.002", "T1133"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "A firewall/VPN LDAP bind account authenticated with a non-LDAP logon type or from a non-appliance IP, indicating the credential was harvested from the device and reused.",
+    "recommendedActions": "Disable or rotate the account, investigate the source device and the edge appliance."
+  },
+  {
+    "file": "05-adfs-dkm-container-acl-change.kql",
+    "deploy": true,
+    "displayName": "AD Gap 5 - AD FS DKM container permissions changed (CVE-2026-56155)",
+    "severity": "high",
+    "category": "CredentialAccess",
+    "mitreTechniques": ["T1222.001", "T1606.002"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "The security descriptor or owner of the AD FS DKM container (CN=ADFS,CN=Microsoft,CN=Program Data) changed. CVE-2026-56155 (CISA KEV) abuses this ACL to read the token-signing key decryption material, enabling Golden SAML.",
+    "recommendedActions": "Revert the ACL, check for MDI 'AD FS DKM key read' or 'Golden SAML' alerts within 24h, patch AD FS and consider rolling the token-signing certificate."
+  },
+  {
+    "file": "06-machineaccountquota-abuse.kql",
+    "deploy": true,
+    "displayName": "AD Gap 6 - Computer account created by non-privileged user",
+    "severity": "medium",
+    "category": "PrivilegeEscalation",
+    "mitreTechniques": ["T1136.002"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "A standard user created a computer object using ms-DS-MachineAccountQuota. Attacker-owned computer accounts are the first step in RBCD, ResetNightmare and Certighost chains.",
+    "recommendedActions": "Confirm the computer is legitimate, delete it if not, and set ms-DS-MachineAccountQuota to 0 with delegated join rights instead."
+  },
+  {
+    "file": "07-delegation-preauth-flag-change.kql",
+    "deploy": true,
+    "displayName": "AD Gap 7 - Delegation or Kerberos pre-auth setting changed",
+    "severity": "medium",
+    "category": "CredentialAccess",
+    "mitreTechniques": ["T1558.004", "T1134.001"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "Unconstrained/constrained delegation was configured, or 'Do not require Kerberos pre-authentication' was set, on an account. These changes set up targeted AS-REP roasting or impersonation.",
+    "recommendedActions": "Verify with the account owner, revert unapproved flags and reset the target account's password if pre-auth was disabled."
+  },
+  {
+    "file": "08-non-default-privileged-group-change.kql",
+    "deploy": true,
+    "displayName": "AD Gap 8 - Change to tier-0-adjacent group",
+    "severity": "medium",
+    "category": "PrivilegeEscalation",
+    "mitreTechniques": ["T1098"],
+    "period": "1H",
+    "impactedAssets": [
+      { "type": "user", "identifier": "accountName" },
+      { "type": "user", "identifier": "targetAccountUpn" }
+    ],
+    "description": "An account was added to a privileged group that MDI does not mark sensitive by default (DnsAdmins, Exchange Windows Permissions, ESX/hypervisor/backup admins, etc.) or removed from Protected Users.",
+    "recommendedActions": "Validate the change request. Consider tagging these groups as sensitive in MDI so built-in alerts also cover them."
+  },
+  {
+    "file": "09-ntds-extraction.kql",
+    "deploy": true,
+    "displayName": "AD Gap 9 - NTDS.dit extraction activity",
+    "severity": "high",
+    "category": "CredentialAccess",
+    "mitreTechniques": ["T1003.003"],
+    "period": "1H",
+    "impactedAssets": [
+      { "type": "device", "identifier": "deviceId" },
+      { "type": "user", "identifier": "accountSid" }
+    ],
+    "description": "ntdsutil IFM/snapshot, copying ntds.dit, esentutl /vss, or shadow-copy creation on a domain controller was observed. Called out in the Sep 2026 Five Eyes AD compromise guidance.",
+    "recommendedActions": "Isolate investigation to the account and host, look for staged .dit/SYSTEM hive files and exfiltration. If confirmed, plan a full credential reset including krbtgt (twice)."
+  },
+  {
+    "file": "10-trust-account-logon.kql",
+    "deploy": true,
+    "displayName": "AD Gap 10 - Trust account authenticated as a user",
+    "severity": "medium",
+    "category": "LateralMovement",
+    "mitreTechniques": ["T1550", "T1482"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "An inter-domain trust account (DOMAIN$) authenticated via Kerberos or NTLM. Five Eyes guidance (Sep 2026) describes obtaining a TGT for the trust account to bypass one-way trusts.",
+    "recommendedActions": "Baseline legitimate trust traffic first. If unexpected, reset the trust password on both sides and investigate the trusting domain."
+  },
+  {
+    "file": "12-optional-laps-gmsa-read-by-unapproved.kql",
+    "deploy": false,
+    "displayName": "AD Gap 12 - LAPS or gMSA password read by unapproved account",
+    "severity": "low",
+    "category": "CredentialAccess",
+    "mitreTechniques": ["T1555"],
+    "period": "1H",
+    "impactedAssets": [{ "type": "user", "identifier": "accountName" }],
+    "description": "An account outside the approved reader list read LAPS or gMSA password attributes.",
+    "recommendedActions": "Confirm the reader's role; remove the read permission if not needed."
+  }
+]

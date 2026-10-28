@@ -1,0 +1,10 @@
+// Gap 12 (optional, not deployed by default) - LAPS / gMSA password attribute read by an account not on the reader list
+// Build the dashboard first, then populate ApprovedReaders from what it shows before enabling.
+let ApprovedReaders = dynamic([]);   // TUNE: helpdesk/LAPS admins, gMSA-consuming servers (host$)
+IdentityQueryEvents
+| where Timestamp > ago(1h)
+| where Query has_any ("ms-Mcs-AdmPwd", "msLAPS-Password", "msLAPS-EncryptedPassword", "msDS-ManagedPassword")
+| where not(AccountName in~ (ApprovedReaders))
+| summarize arg_max(Timestamp, ReportId, DeviceName, AccountDomain, AccountUpn, IPAddress),
+    Reads = count(), Targets = dcount(QueryTarget), SampleTargets = make_set(QueryTarget, 10) by AccountName
+| project Timestamp, ReportId, AccountName, AccountDomain, AccountUpn, DeviceName, IPAddress, Reads, Targets, SampleTargets

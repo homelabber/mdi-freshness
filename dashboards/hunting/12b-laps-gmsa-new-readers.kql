@@ -1,0 +1,11 @@
+// Dashboard tile for gap 12: accounts reading LAPS / gMSA secrets in the last 7 days that never did in the prior 23 days
+let Secrets = dynamic(["ms-Mcs-AdmPwd", "msLAPS-Password", "msLAPS-EncryptedPassword", "msDS-ManagedPassword"]);
+let Prior = IdentityQueryEvents
+    | where Timestamp between (ago(30d) .. ago(7d)) and Query has_any (Secrets)
+    | distinct AccountName;
+IdentityQueryEvents
+| where Timestamp > ago(7d) and Query has_any (Secrets)
+| where AccountName !in (Prior)
+| summarize FirstSeen = min(Timestamp), Reads = count(), Targets = dcount(QueryTarget), SampleTargets = make_set(QueryTarget, 10)
+    by AccountName, DeviceName
+| order by Targets desc

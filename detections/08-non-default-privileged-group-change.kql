@@ -1,0 +1,15 @@
+// Gap 8 - Additions to privileged groups MDI does not treat as sensitive by default (+ removals from Protected Users)
+let WatchGroups = dynamic(["DnsAdmins", "Cert Publishers", "Exchange Windows Permissions", "Exchange Trusted Subsystem",
+    "Organization Management", "Hyper-V Administrators", "Remote Management Users", "Event Log Readers",
+    "Group Policy Creator Owners", "Key Admins", "Enterprise Key Admins", "ESX Admins", "ESXi Admins",
+    "vSphere Admins", "VMware Admins", "Veeam Administrators"]);   // TUNE: add your own tier-0-adjacent groups
+IdentityDirectoryEvents
+| where Timestamp > ago(1h)
+| where ActionType == "Group Membership changed"
+| extend ToGroup = tostring(AdditionalFields["TO.GROUP"]), FromGroup = tostring(AdditionalFields["FROM.GROUP"])
+| where ToGroup in~ (WatchGroups)
+    or ToGroup matches regex @"(?i)(esx|vcenter|vsphere|hyper-?v|backup|veeam|nutanix|citrix).*admin"
+    or FromGroup =~ "Protected Users"
+| extend Change = iff(isnotempty(ToGroup), strcat("Added to ", ToGroup), strcat("Removed from ", FromGroup))
+| project Timestamp, ReportId, Change, AccountName, AccountDomain, AccountUpn, TargetAccountUpn,
+    TargetAccountDisplayName, TargetDeviceName, DeviceName

@@ -1,0 +1,8 @@
+// Dashboard tile for gap 12: who reads LAPS / gMSA password attributes, and how many objects
+IdentityQueryEvents
+| where Timestamp > ago(30d)
+| where Query has_any ("ms-Mcs-AdmPwd", "msLAPS-Password", "msLAPS-EncryptedPassword", "msDS-ManagedPassword")
+| extend Secret = case(Query has "msDS-ManagedPassword", "gMSA", "LAPS")
+| summarize Reads = count(), Targets = dcount(QueryTarget), Days = dcount(bin(Timestamp, 1d)),
+    SampleTargets = make_set(QueryTarget, 10), SourceDevices = make_set(DeviceName, 10) by AccountName, Secret
+| order by Targets desc
