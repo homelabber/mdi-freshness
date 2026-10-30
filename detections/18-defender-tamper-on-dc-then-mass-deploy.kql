@@ -1,0 +1,37 @@
+// AD Sequence 18 - Defender tampering on a DC, then mass deployment from that DC (PsExec @list, PDQ, GPO) within 2h
+// Source: Microsoft Threat Intelligence - Storm-2570 (Sep 2026) and Storm-1175/Medusa (Apr 2026): AV is weakened
+// on the DC first, then ransomware is pushed domain-wide from it. Alerts on the deployment step.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let DCs = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+let TamperReg = DeviceRegistryEvents
+    | where Timestamp > ago(3h)
+    | where RegistryKey has_any (@"\Windows Defender", @"\Services\WinDefend", @"\Services\Sense", @"\Services\WdFilter")
+    | where RegistryValueName in~ ("DisableAntiSpyware", "DisableRealtimeMonitoring", "DisableBehaviorMonitoring",
+        "DisableIOAVProtection", "TamperProtection", "Start") or RegistryKey has @"\Exclusions\"
+    | project TamperTime = Timestamp, DeviceId, DeviceName, TamperAccount = InitiatingProcessAccountName,
+        TamperDetail = strcat(RegistryKey, " ", RegistryValueName, "=", RegistryValueData);
+let TamperCmd = DeviceProcessEvents
+    | where Timestamp > ago(3h)
+    | where (ProcessCommandLine has_any ("Add-MpPreference", "Set-MpPreference") and ProcessCommandLine has_any
+            ("ExclusionPath", "DisableRealtimeMonitoring", "DisableBehaviorMonitoring", "DisableIOAVProtection"))
+        or (FileName =~ "sc.exe" and ProcessCommandLine has_any ("WinDefend", "Sense", "WdFilter") and ProcessCommandLine has_any ("stop", "disabled", "delete"))
+    | project TamperTime = Timestamp, DeviceId, DeviceName, TamperAccount = AccountName, TamperDetail = ProcessCommandLine;
+let Tamper = union TamperReg, TamperCmd
+    | extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+    | where ShortName in (DCs)
+    | summarize TamperTime = min(TamperTime), TamperDetails = make_set(TamperDetail, 10), TamperAccounts = make_set(TamperAccount, 5)
+        by DeviceId;
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| where ((FileName in~ ("psexec.exe", "psexec64.exe", "paexec.exe") or ProcessCommandLine has "accepteula")
+        and ProcessCommandLine matches regex @"\s@\S+")
+    or FileName =~ "RunFileCopy.cmd" or ProcessCommandLine has_any ("RunFileCopy.cmd", "PDQDeployRunner", "PDQInventory")
+    or (FileName =~ "powershell.exe" and ProcessCommandLine has "Invoke-GPUpdate" and ProcessCommandLine has "-Computer")
+    or (FileName =~ "gpupdate.exe" and ProcessCommandLine has "/force" and InitiatingProcessFileName in~ ("powershell.exe", "cmd.exe"))
+| join kind=inner Tamper on DeviceId
+| where Timestamp between (TamperTime .. (TamperTime + 2h))
+| project Timestamp, ReportId, DeviceId, DeviceName, AccountName, AccountDomain, AccountSid, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, TamperTime, TamperDetails, TamperAccounts

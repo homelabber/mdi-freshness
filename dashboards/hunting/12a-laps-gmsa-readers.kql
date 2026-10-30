@@ -1,4 +1,4 @@
-// Dashboard tile for gap 12: who reads LAPS / gMSA password attributes, and how many objects
+// Dashboard tile for posture item 12: who reads LAPS / gMSA password attributes, and how many objects
 IdentityQueryEvents
 | where Timestamp > ago(30d)
 | where Query has_any ("ms-Mcs-AdmPwd", "msLAPS-Password", "msLAPS-EncryptedPassword", "msDS-ManagedPassword")

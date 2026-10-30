@@ -1,0 +1,34 @@
+// Dashboard tile for sequences 13-19: accounts that progressed through 3+ AD attack stages within a 7-day window
+// Source: Microsoft Threat Intelligence GPO-ransomware case (Mar 2026) - recon, credential reset, group change,
+// GPO edit and DC remote logon by the same identity, spread over days so no single step looks alarming.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let DCs = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+let Recon = IdentityQueryEvents
+    | where Timestamp > ago(30d) and isnotempty(AccountName)
+    | summarize Targets = dcount(QueryTarget) by AccountName = tolower(AccountName), Day = bin(Timestamp, 1d)
+    | where Targets > 50
+    | project Timestamp = Day, AccountName, Stage = "1 Recon";
+let Directory = IdentityDirectoryEvents
+    | where Timestamp > ago(30d) and isnotempty(AccountName)
+    | extend AF = tostring(AdditionalFields)
+    | extend Stage = case(
+        ActionType has "Password" and isnotempty(TargetAccountUpn) and tolower(tostring(split(TargetAccountUpn, "@")[0])) != tolower(AccountName), "2 Password reset of another account",
+        ActionType == "Group Membership changed", "3 Group membership change",
+        ActionType has_any ("Group Policy", "GPO", "gPLink") or AF has_any ("gPLink", "gPCFileSysPath"), "4 GPO change",
+        "")
+    | where isnotempty(Stage)
+    | project Timestamp, AccountName = tolower(AccountName), Stage;
+let DcLogon = DeviceLogonEvents
+    | where Timestamp > ago(30d) and LogonType in ("RemoteInteractive", "Network") and ActionType == "LogonSuccess"
+    | extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+    | where ShortName in (DCs) and isnotempty(AccountName) and not(AccountName endswith "$")
+    | where LogonType == "RemoteInteractive" or InitiatingProcessFileName in~ ("wsmprovhost.exe", "wmiprvse.exe", "services.exe")
+    | project Timestamp, AccountName = tolower(AccountName), Stage = "5 Remote logon to a DC";
+union Recon, Directory, DcLogon
+| summarize Stages = make_set(Stage), StageCount = dcount(Stage), FirstSeen = min(Timestamp), LastSeen = max(Timestamp), Events = count()
+    by AccountName, Week = bin(Timestamp, 7d)
+| where StageCount >= 3
+| order by StageCount desc, LastSeen desc

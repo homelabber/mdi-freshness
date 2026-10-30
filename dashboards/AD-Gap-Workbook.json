@@ -5,7 +5,7 @@
       "type": 1,
       "name": "intro",
       "content": {
-        "json": "## AD detection gaps (2026) - posture & hunting\nTiles for gaps 3, 4, 11, 12. Detections for gaps 1-10 are deployed separately as Defender XDR custom detections. Requires MDI/MDE tables streamed to this workspace (Defender XDR connector)."
+        "json": "## Active Directory - additional visibility layer for MDI\nPosture and hunting tiles that sit alongside Defender for Identity alerts. Rows 1-3 cover AD hardening signals (encryption types, NTLM fallback, edge accounts, LAPS/gMSA reads); row 4 onward tracks multi-step sequences Microsoft Threat Intelligence reported in 2026 (Storm-2570, Storm-1175, Teams IT-support impersonation, GPO-delivered ransomware). The matching Defender XDR custom detections are deployed separately. Requires MDI/MDE tables streamed to this workspace (Defender XDR connector)."
       }
     },
     {
@@ -62,7 +62,7 @@
         "version": "KqlItem/1.0",
         "query": "IdentityDirectoryEvents\n| where TimeGenerated {TimeRange} and ActionType has \"Encryption\"\n| extend AF = todynamic(AdditionalFields)\n| mv-apply kv = AF on (\n    extend k = tostring(bag_keys(kv)[0]), v = tostring(kv[tostring(bag_keys(kv)[0])])\n    | summarize NewValue = take_anyif(v, k matches regex @\"(?i)^\\s*TO\\b\"), OldValue = take_anyif(v, k matches regex @\"(?i)^\\s*FROM\\b\")\n  )\n| extend NewInt = toint(NewValue)\n| extend RC4WithoutAES = (isnotnull(NewInt) and binary_and(NewInt, 4) != 0 and binary_and(NewInt, 24) == 0)\n    or (NewValue has \"RC4\" and not(NewValue has \"AES\"))\n| summarize arg_max(TimeGenerated, NewValue, OldValue, RC4WithoutAES), Changes = count(), ChangedBy = make_set(AccountName, 10)\n    by TargetAccountUpn, TargetDeviceName\n| project LastChange = TimeGenerated, TargetAccountUpn, TargetDeviceName, OldValue, NewValue, RC4WithoutAES, Changes, ChangedBy\n| order by RC4WithoutAES desc, LastChange desc",
         "size": 0,
-        "title": "Gap 11 - Encryption type changes (RC4WithoutAES = 1 is the risk)",
+        "title": "Posture 11 - Encryption type changes (RC4WithoutAES = 1 is the risk)",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -77,7 +77,7 @@
         "version": "KqlItem/1.0",
         "query": "IdentityLogonEvents\n| where TimeGenerated {TimeRange} and ActionType == \"LogonSuccess\" and Protocol in~ (\"Kerberos\", \"Ntlm\")\n| summarize Logons = count() by Protocol, Day = bin(TimeGenerated, 1d)",
         "size": 0,
-        "title": "Gap 11 - Kerberos vs NTLM successful logons",
+        "title": "Posture 11 - Kerberos vs NTLM successful logons",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -92,7 +92,7 @@
         "version": "KqlItem/1.0",
         "query": "IdentityLogonEvents\n| where TimeGenerated {TimeRange} and ActionType == \"LogonSuccess\"\n| where isnotempty(DestinationDeviceName) and Protocol in~ (\"Kerberos\", \"Ntlm\")\n| summarize Krb = countif(Protocol =~ \"Kerberos\"), Ntlm = countif(Protocol =~ \"Ntlm\") by DestinationDeviceName, Day = bin(TimeGenerated, 1d)\n| extend NtlmRatio = round(todouble(Ntlm) / (Krb + Ntlm), 2)\n| order by DestinationDeviceName asc, Day asc\n| extend PrevRatio = prev(NtlmRatio), PrevHost = prev(DestinationDeviceName)\n| where PrevHost == DestinationDeviceName and PrevRatio < 0.1 and NtlmRatio > 0.5\n| project Day, DestinationDeviceName, PrevRatio, NtlmRatio, Krb, Ntlm",
         "size": 0,
-        "title": "Gap 3 - Services that flipped from Kerberos to NTLM",
+        "title": "Posture 3 - Services that flipped from Kerberos to NTLM",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -107,7 +107,7 @@
         "version": "KqlItem/1.0",
         "query": "let EdgeAccounts = split(replace_string(\"{EdgeAccounts}\", \" \", \"\"), \",\");\nunion\n    (IdentityQueryEvents | where TimeGenerated {TimeRange} and AccountName in~ (EdgeAccounts) | extend Kind = \"Query\", Detail = QueryType),\n    (IdentityLogonEvents | where TimeGenerated {TimeRange} and AccountName in~ (EdgeAccounts) | extend Kind = \"Logon\", Detail = LogonType)\n| summarize Events = count(), DistinctDetails = dcount(Detail), SrcIPs = make_set(IPAddress, 20) by AccountName, Kind, Day = bin(TimeGenerated, 1d)\n| order by AccountName asc, Day asc",
         "size": 0,
-        "title": "Gap 4 - Edge/VPN bind account activity",
+        "title": "Posture 4 - Edge/VPN bind account activity",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -122,7 +122,7 @@
         "version": "KqlItem/1.0",
         "query": "IdentityQueryEvents\n| where TimeGenerated {TimeRange}\n| where Query has_any (\"ms-Mcs-AdmPwd\", \"msLAPS-Password\", \"msLAPS-EncryptedPassword\", \"msDS-ManagedPassword\")\n| extend Secret = case(Query has \"msDS-ManagedPassword\", \"gMSA\", \"LAPS\")\n| summarize Reads = count(), Targets = dcount(QueryTarget), Days = dcount(bin(TimeGenerated, 1d)),\n    SampleTargets = make_set(QueryTarget, 10), SourceDevices = make_set(DeviceName, 10) by AccountName, Secret\n| order by Targets desc",
         "size": 0,
-        "title": "Gap 12 - LAPS / gMSA password readers",
+        "title": "Posture 12 - LAPS / gMSA password readers",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
@@ -137,7 +137,67 @@
         "version": "KqlItem/1.0",
         "query": "let Secrets = dynamic([\"ms-Mcs-AdmPwd\", \"msLAPS-Password\", \"msLAPS-EncryptedPassword\", \"msDS-ManagedPassword\"]);\nlet Prior = IdentityQueryEvents\n    | where TimeGenerated between (ago(30d) .. ago(7d)) and Query has_any (Secrets)\n    | distinct AccountName;\nIdentityQueryEvents\n| where TimeGenerated > ago(7d) and Query has_any (Secrets)\n| where AccountName !in (Prior)\n| summarize FirstSeen = min(TimeGenerated), Reads = count(), Targets = dcount(QueryTarget), SampleTargets = make_set(QueryTarget, 10)\n    by AccountName, DeviceName\n| order by Targets desc",
         "size": 0,
-        "title": "Gap 12 - New LAPS / gMSA readers (last 7 days vs prior 23)",
+        "title": "Posture 12 - New LAPS / gMSA readers (last 7 days vs prior 23)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile6",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let ExtraDCs = dynamic([]);   \nlet DCs = IdentityLogonEvents\n    | where TimeGenerated > ago(7d) and Protocol in~ (\"Kerberos\", \"Ntlm\") and isnotempty(DestinationDeviceName)\n    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, \".\")[0]))\n    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));\nlet Recon = IdentityQueryEvents\n    | where TimeGenerated {TimeRange} and isnotempty(AccountName)\n    | summarize Targets = dcount(QueryTarget) by AccountName = tolower(AccountName), Day = bin(TimeGenerated, 1d)\n    | where Targets > 50\n    | project TimeGenerated = Day, AccountName, Stage = \"1 Recon\";\nlet Directory = IdentityDirectoryEvents\n    | where TimeGenerated {TimeRange} and isnotempty(AccountName)\n    | extend AF = tostring(AdditionalFields)\n    | extend Stage = case(\n        ActionType has \"Password\" and isnotempty(TargetAccountUpn) and tolower(tostring(split(TargetAccountUpn, \"@\")[0])) != tolower(AccountName), \"2 Password reset of another account\",\n        ActionType == \"Group Membership changed\", \"3 Group membership change\",\n        ActionType has_any (\"Group Policy\", \"GPO\", \"gPLink\") or AF has_any (\"gPLink\", \"gPCFileSysPath\"), \"4 GPO change\",\n        \"\")\n    | where isnotempty(Stage)\n    | project TimeGenerated, AccountName = tolower(AccountName), Stage;\nlet DcLogon = DeviceLogonEvents\n    | where TimeGenerated {TimeRange} and LogonType in (\"RemoteInteractive\", \"Network\") and ActionType == \"LogonSuccess\"\n    | extend ShortName = tolower(tostring(split(DeviceName, \".\")[0]))\n    | where ShortName in (DCs) and isnotempty(AccountName) and not(AccountName endswith \"$\")\n    | where LogonType == \"RemoteInteractive\" or InitiatingProcessFileName in~ (\"wsmprovhost.exe\", \"wmiprvse.exe\", \"services.exe\")\n    | project TimeGenerated, AccountName = tolower(AccountName), Stage = \"5 Remote logon to a DC\";\nunion Recon, Directory, DcLogon\n| summarize Stages = make_set(Stage), StageCount = dcount(Stage), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), Events = count()\n    by AccountName, Week = bin(TimeGenerated, 7d)\n| where StageCount >= 3\n| order by StageCount desc, LastSeen desc",
+        "size": 0,
+        "title": "Sequence - Accounts progressing through 3+ AD attack stages per week",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile7",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let ExtraDCs = dynamic([]);   \nlet RmmTools = dynamic([\"meshagent\", \"meshcentral\", \"atera\", \"splashtop\", \"ninjarmm\", \"screenconnect\", \"anydesk\",\n    \"simplehelp\", \"remote access.exe\", \"level.exe\", \"dwagent\", \"remotely\", \"cloudflared\", \"ngrok\", \"tacticalrmm\", \"rustdesk\"]);\nlet Tier0 = IdentityLogonEvents\n    | where TimeGenerated > ago(7d) and Protocol in~ (\"Kerberos\", \"Ntlm\") and isnotempty(DestinationDeviceName)\n    | summarize by Host = tolower(tostring(split(DestinationDeviceName, \".\")[0]))\n    | union (print Host = ExtraDCs | mv-expand Host to typeof(string) | extend Host = tolower(Host))\n    | union (DeviceProcessEvents | where TimeGenerated {TimeRange} and FileName =~ \"miiserver.exe\"\n        | summarize by Host = tolower(tostring(split(DeviceName, \".\")[0])));\nDeviceProcessEvents\n| where TimeGenerated {TimeRange}\n| extend Host = tolower(tostring(split(DeviceName, \".\")[0]))\n| where Host in (Tier0)\n| where FileName has_any (RmmTools) or ProcessCommandLine has_any (RmmTools)\n| summarize FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), Executions = count(), Accounts = make_set(AccountName, 5),\n    SampleCommandLine = take_any(ProcessCommandLine) by DeviceName, FileName\n| order by FirstSeen desc",
+        "size": 0,
+        "title": "Sequence 13 - RMM / tunnel tools on DCs and Entra Connect",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile8",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let PrivilegedGroups = dynamic([\"Domain Admins\", \"Enterprise Admins\", \"Schema Admins\", \"Administrators\",\n    \"Account Operators\", \"Backup Operators\", \"Server Operators\", \"Print Operators\", \"DnsAdmins\", \"Group Policy Creator Owners\"]);\nlet Privileged = IdentityInfo\n    | where TimeGenerated {TimeRange} and isnotempty(AccountUpn)\n    | summarize arg_max(TimeGenerated, CriticalityLevel, Tags, GroupMembership) by AccountUpn\n    | where CriticalityLevel > 0 or tostring(Tags) has_any (\"Sensitive\", \"Admin\", \"Privileged\")\n        or tostring(GroupMembership) has_any (PrivilegedGroups)\n    | project VictimUpn = tolower(AccountUpn);\nIdentityDirectoryEvents\n| where TimeGenerated {TimeRange}\n| where ActionType has \"Password\" and ActionType has_any (\"reset\", \"changed\")\n| where isnotempty(TargetAccountUpn) and isnotempty(AccountName)\n| extend VictimUpn = tolower(TargetAccountUpn)\n| where tolower(AccountName) != tolower(tostring(split(VictimUpn, \"@\")[0]))\n| join kind=inner Privileged on VictimUpn\n| summarize Resets = count(), DistinctTargets = dcount(VictimUpn), Targets = make_set(VictimUpn, 20),\n    SourceDevices = make_set(DeviceName, 10), LastReset = max(TimeGenerated) by ResetBy = AccountName, AccountDomain\n| order by DistinctTargets desc, LastReset desc",
+        "size": 0,
+        "title": "Sequence 16 - Privileged password resets by actor",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    },
+    {
+      "type": 3,
+      "name": "tile9",
+      "customWidth": "50",
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let ExtraDCs = dynamic([]);   \nlet Tier0 = IdentityLogonEvents\n    | where TimeGenerated > ago(7d) and Protocol in~ (\"Kerberos\", \"Ntlm\") and isnotempty(DestinationDeviceName)\n    | summarize by Host = tolower(tostring(split(DestinationDeviceName, \".\")[0]))\n    | union (print Host = ExtraDCs | mv-expand Host to typeof(string) | extend Host = tolower(Host))\n    | union (DeviceProcessEvents | where TimeGenerated {TimeRange} and FileName =~ \"miiserver.exe\"\n        | summarize by Host = tolower(tostring(split(DeviceName, \".\")[0])));\nDeviceNetworkEvents\n| where TimeGenerated {TimeRange}\n| where ActionType == \"InboundConnectionAccepted\" and LocalPort in (5985, 5986, 3389)\n| extend Host = tolower(tostring(split(DeviceName, \".\")[0]))\n| where Host in (Tier0)\n| extend Service = case(LocalPort in (5985, 5986), \"WinRM\", \"RDP\")\n| summarize Sessions = count(), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), Targets = make_set(DeviceName, 10)\n    by SourceIP = RemoteIP, Service\n| order by FirstSeen desc",
+        "size": 0,
+        "title": "Sequences 17/19 - Inbound WinRM/RDP to Tier 0 by source",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",

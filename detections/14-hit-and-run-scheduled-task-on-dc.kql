@@ -1,0 +1,34 @@
+// AD Sequence 14 - "Hit-and-run" scheduled task on a DC: created, used for credential/archive tooling, deleted within 15 min
+// Source: Microsoft Threat Intelligence - domain-compromise case (Apr 2026) and high-value-asset protection (Mar 2026):
+// actors ran ntdsutil through a short-lived remote scheduled task on DCs, then removed it.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let DCs = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+let Tasks = DeviceEvents
+    | where Timestamp > ago(2h)
+    | where ActionType in ("ScheduledTaskCreated", "ScheduledTaskDeleted")
+    | extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+    | where ShortName in (DCs)
+    | extend TaskName = tostring(parse_json(AdditionalFields).TaskName);
+let Created = Tasks | where ActionType == "ScheduledTaskCreated"
+    | project CreatedTime = Timestamp, DeviceId, DeviceName, TaskName, CreatedBy = InitiatingProcessAccountName,
+        TaskContent = tostring(parse_json(AdditionalFields).TaskContent);
+let Deleted = Tasks | where ActionType == "ScheduledTaskDeleted"
+    | project Timestamp, ReportId, DeviceId, TaskName;
+let Tooling = DeviceProcessEvents
+    | where Timestamp > ago(2h)
+    | where FileName in~ ("ntdsutil.exe", "makecab.exe", "esentutl.exe", "7z.exe", "7za.exe", "rar.exe", "winrar.exe", "reg.exe", "vssadmin.exe", "diskshadow.exe")
+        or ProcessCommandLine has_any ("ntds.dit", "ifm", "\\windows\\temp\\")
+    | project ToolTime = Timestamp, DeviceId, ToolCommandLine = ProcessCommandLine;
+Deleted
+| where Timestamp > ago(1h)
+| join kind=inner Created on DeviceId, TaskName
+| where Timestamp between (CreatedTime .. (CreatedTime + 15m))
+| join kind=inner Tooling on DeviceId
+| where ToolTime between (CreatedTime .. Timestamp)
+| summarize arg_max(Timestamp, ReportId), CreatedTime = min(CreatedTime), ToolCommandLines = make_set(ToolCommandLine, 10),
+    TaskContent = take_any(TaskContent), CreatedBy = take_any(CreatedBy) by DeviceId, DeviceName, TaskName
+| extend TaskLifetime = Timestamp - CreatedTime
+| project Timestamp, ReportId, DeviceId, DeviceName, TaskName, TaskLifetime, CreatedBy, TaskContent, ToolCommandLines

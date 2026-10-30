@@ -1,0 +1,19 @@
+// Dashboard tile for sequence 13: RMM and tunnelling tools seen on DCs and Entra Connect servers
+// Source: Microsoft Threat Intelligence - Storm-2570 (Sep 2026), Storm-1175 (Apr 2026)
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let RmmTools = dynamic(["meshagent", "meshcentral", "atera", "splashtop", "ninjarmm", "screenconnect", "anydesk",
+    "simplehelp", "remote access.exe", "level.exe", "dwagent", "remotely", "cloudflared", "ngrok", "tacticalrmm", "rustdesk"]);
+let Tier0 = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Host = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Host = ExtraDCs | mv-expand Host to typeof(string) | extend Host = tolower(Host))
+    | union (DeviceProcessEvents | where Timestamp > ago(14d) and FileName =~ "miiserver.exe"
+        | summarize by Host = tolower(tostring(split(DeviceName, ".")[0])));
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| extend Host = tolower(tostring(split(DeviceName, ".")[0]))
+| where Host in (Tier0)
+| where FileName has_any (RmmTools) or ProcessCommandLine has_any (RmmTools)
+| summarize FirstSeen = min(Timestamp), LastSeen = max(Timestamp), Executions = count(), Accounts = make_set(AccountName, 5),
+    SampleCommandLine = take_any(ProcessCommandLine) by DeviceName, FileName
+| order by FirstSeen desc

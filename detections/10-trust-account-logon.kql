@@ -1,4 +1,4 @@
-// Gap 10 - Inter-domain trust account (<TRUSTEDDOMAIN>$) authenticating like a normal account
+// AD Visibility 10 - Inter-domain trust account (<TRUSTEDDOMAIN>$) authenticating like a normal account
 // Five Eyes AD guidance (Sep 2026): one-way trust bypass by obtaining a TGT for the trust account.
 let TrustAccounts = dynamic([]);   // TUNE: NetBIOS names of trusted/trusting domains with a trailing $, e.g. "PARTNERDOM$"
 let DerivedTrustAccounts = IdentityLogonEvents

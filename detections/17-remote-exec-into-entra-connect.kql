@@ -1,0 +1,23 @@
+// AD Sequence 17 - Impacket-style remote execution on an Entra Connect (AAD Connect) server
+// Source: Microsoft Threat Intelligence - domain-compromise case (Apr 2026) and high-value-asset protection (Mar 2026):
+// actors pivoted to the sync server with wmiexec/atexec/psexec to harvest the sync account and reach the cloud.
+let ExtraEntraConnect = dynamic([]);   // TUNE: optional short host names of Entra Connect / Cloud Sync servers
+let EntraConnect = DeviceProcessEvents
+    | where Timestamp > ago(14d)
+    | where FileName in~ ("miiserver.exe", "AzureADConnectAuthenticationAgentService.exe", "AADConnectProvisioningAgent.exe")
+    | summarize by Host = tolower(tostring(split(DeviceName, ".")[0]))
+    | union (print Host = ExtraEntraConnect | mv-expand Host to typeof(string) | extend Host = tolower(Host));
+DeviceProcessEvents
+| where Timestamp > ago(1h)
+| extend Host = tolower(tostring(split(DeviceName, ".")[0]))
+| where Host in (EntraConnect)
+| extend Technique = case(
+    InitiatingProcessFileName =~ "wmiprvse.exe" and FileName =~ "cmd.exe" and ProcessCommandLine has "/Q" and ProcessCommandLine has_any (@"\\127.0.0.1\", "ADMIN$\\__", "2>&1"), "wmiexec",
+    InitiatingProcessFileName =~ "svchost.exe" and FileName =~ "cmd.exe" and ProcessCommandLine has @"\Windows\Temp\" and ProcessCommandLine has "2>&1", "atexec",
+    InitiatingProcessFileName in~ ("psexesvc.exe", "remcomsvc.exe") or FileName in~ ("psexesvc.exe", "remcomsvc.exe"), "psexec-service",
+    InitiatingProcessFileName =~ "services.exe" and FileName =~ "cmd.exe" and ProcessCommandLine has_any (@"\\127.0.0.1\", "ADMIN$\\__"), "smbexec",
+    InitiatingProcessFileName =~ "wsmprovhost.exe" and FileName in~ ("cmd.exe", "powershell.exe") , "winrm",
+    "")
+| where isnotempty(Technique)
+| project Timestamp, ReportId, DeviceId, DeviceName, Technique, AccountName, AccountDomain, AccountSid, FileName,
+    ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine

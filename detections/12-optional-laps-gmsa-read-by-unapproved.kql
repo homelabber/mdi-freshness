@@ -1,4 +1,4 @@
-// Gap 12 (optional, not deployed by default) - LAPS / gMSA password attribute read by an account not on the reader list
+// AD Visibility 12 (optional, not deployed by default) - LAPS / gMSA password attribute read by an account not on the reader list
 // Build the dashboard first, then populate ApprovedReaders from what it shows before enabling.
 let ApprovedReaders = dynamic([]);   // TUNE: helpdesk/LAPS admins, gMSA-consuming servers (host$)
 IdentityQueryEvents

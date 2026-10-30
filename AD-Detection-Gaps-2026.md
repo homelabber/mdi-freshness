@@ -1,6 +1,8 @@
-# Defender for Identity – AD detection gaps vs. 2026 threat activity
+# Defender for Identity – an extra visibility layer for 2026 Active Directory tradecraft
 
-**Scope:** On-premises AD tradecraft observed or disclosed **Feb–Oct 2026**, compared against the current MDI alert catalog (classic + XDR-format, `alerts-overview`, Oct 2026), restricted to items where MDI (sensor v3.x) or the MDE agent on DCs already emits telemetry into Advanced Hunting.
+MDI already alerts on the classics (DCSync, Golden Ticket, Kerberoasting, NTLM relay, password spray and friends). This document adds a second lens: custom detections and dashboards built on the **same telemetry MDI and Defender for Endpoint already collect**, tuned to techniques disclosed in 2026 and to the multi-step sequences Microsoft Threat Intelligence has reported. Think of it as extra cameras in rooms MDI already watches, not a replacement for the security system.
+
+**Scope:** On-premises AD tradecraft observed or disclosed **Feb–Oct 2026**, mapped against the current MDI alert catalog (classic + XDR-format, `alerts-overview`, Oct 2026), restricted to items where MDI (sensor v3.x) or the MDE agent on DCs already emits telemetry into Advanced Hunting.
 
 > ⚠️ MDI is not an audit log. `ActionType` strings and `AdditionalFields` keys vary by sensor version and are not fully documented. Run **Query 0** first and adjust string matches to what your tenant actually emits. Every query below is written to be tolerant (`has`/`contains`) rather than exact.
 
@@ -8,24 +10,24 @@
 
 ## Summary table
 
-| # | Gap (technique) | 2026 evidence | Existing MDI alert coverage | Telemetry | Recommended use |
+| # | Technique | 2026 evidence | How it relates to built-in MDI alerts | Telemetry | Recommended use |
 |---|---|---|---|---|---|
-| 1 | **Malicious GPO creation / domain-root link** (impact or ransomware delivery via GPO) | Kaspersky GERT “PAYLOAD” GPO extortion (Apr 2026 incident, pub. 21 Sep 2026); Five Eyes AD guidance (Sep 2026) | **Partial** – only *Group Policy Tampering* (GPO that disables Defender AV) | `IdentityDirectoryEvents` (GPO events, enriched May 2026 sensor), `DeviceFileEvents` on DCs (SYSVOL writes) | Custom detection (High) |
-| 2 | **ResetNightmare – CVE-2026-27912** (UPN set to another account’s sAMAccountName → kpasswd reset of DA) | Semperis disclosure (Aug 2026), public PoC `ResetNightmare.ps1`; patched Apr 2026 | **None** (MDI has *sAMAccountName* change, not UPN collision) | `IdentityDirectoryEvents` UPN changes + `IdentityInfo` | Custom detection (High) |
-| 3 | **KerberLoss – CVE-2026-25177** (invisible-Unicode duplicate SPN/UPN → Kerberos failure / NTLM downgrade) | Semperis (Aug 2026); patched Mar 2026 | **None** (XDR *Suspicious SPN added* targets Kerberoasting, not Unicode collisions) | `IdentityDirectoryEvents`, `IdentityLogonEvents` (NTLM fallback) | Custom detection + dashboard |
-| 4 | **Edge-device service-account abuse** (firewall/VPN LDAP bind account used for AD recon or logons) | CL-STA-1132 via PAN-OS CVE-2026-0300; Qilin affiliates post-VPN; PAYLOAD actor via FortiGate SSL VPN | **Partial** – generic LDAP/SAMR recon alerts are learning-based and don’t treat appliance accounts specially | `IdentityQueryEvents`, `IdentityLogonEvents` | Custom detection (watch-list) + dashboard |
-| 5 | **AD FS DKM container ACL change – CVE-2026-56155** (KEV 14 Jul 2026) | CISA KEV; Alastor write-up | **Partial** – *AD FS DKM key read* and *Golden SAML* fire on read/use, not on the ACL grant that precedes it | `IdentityDirectoryEvents` (permission changes), MDI sensor on AD FS | Custom detection (High) |
-| 6 | **MachineAccountQuota abuse** (non-admin creates computer objects) | Five Eyes guidance (Sep 2026); prerequisite for RBCD, ResetNightmare, Certighost chains | **Partial** – XDR *device addition on-premises*/RBCD alerts fire on later stages | `IdentityDirectoryEvents` `Device Account Created` | Custom detection (Medium) |
-| 7 | **Delegation / pre-auth flag flips** (unconstrained or constrained delegation set; DONT_REQ_PREAUTH set → targeted AS-REP roast) | Five Eyes guidance; Secureware 2026 assessments (AS-REP → DA in 4h) | **Partial** – MDI alerts on *new computer unconstrained delegation*, RBCD, and AS-REP roasting traffic, not on user/service-account flag changes | `IdentityDirectoryEvents` account-attribute changes | Custom detection (Medium/High) |
-| 8 | **Non-default privileged group additions** (DnsAdmins, Cert Publishers, ESX-admin look-alikes, Exchange Windows Permissions, Hyper-V Admins, etc.) | Ransomware ESXi takeover pattern continues in 2026 (PAYLOAD ESXi locker) | **Partial** – *sensitive group addition* only covers groups tagged sensitive | `IdentityDirectoryEvents` `Group Membership changed` | Custom detection (watch-list) |
-| 9 | **NTDS.dit / IFM / VSS extraction on DCs** | Five Eyes guidance (Sep 2026) | **None** in MDI (MDE may alert generically) | `DeviceProcessEvents` on DCs (MDE is co-installed with sensor v3.x) | Custom detection (High) |
-| 10 | **Trust account (TDO) abuse** – one-way trust bypass using `TRUSTEDDOMAIN$` | Five Eyes guidance (Sep 2026) | **None** | `IdentityLogonEvents` | Custom detection (High) |
-| 11 | **RC4 / encryption-type downgrade posture** | RC4 deprecation; KerberLoss downgrade; Five Eyes (4768/4769) | **Partial** – golden-ticket *encryption downgrade* only | `IdentityDirectoryEvents` (`Supported Encryption Types changed`), `IdentityLogonEvents` | Dashboard |
-| 12 | **LAPS / gMSA password attribute reads** by unexpected principals | Secureware 2026 (“LAPS bypass”); Golden gMSA | **Partial** – XDR *sensitive attribute LDAP query* is anomaly-based | `IdentityQueryEvents` | Dashboard + optional detection |
+| 1 | **Malicious GPO creation / domain-root link** (impact or ransomware delivery via GPO) | Kaspersky GERT “PAYLOAD” GPO extortion (Apr 2026 incident, pub. 21 Sep 2026); Five Eyes AD guidance (Sep 2026) | **Extends** – only *Group Policy Tampering* (GPO that disables Defender AV) | `IdentityDirectoryEvents` (GPO events, enriched May 2026 sensor), `DeviceFileEvents` on DCs (SYSVOL writes) | Custom detection (High) |
+| 2 | **ResetNightmare – CVE-2026-27912** (UPN set to another account’s sAMAccountName → kpasswd reset of DA) | Semperis disclosure (Aug 2026), public PoC `ResetNightmare.ps1`; patched Apr 2026 | **New angle** (MDI has *sAMAccountName* change, not UPN collision) | `IdentityDirectoryEvents` UPN changes + `IdentityInfo` | Custom detection (High) |
+| 3 | **KerberLoss – CVE-2026-25177** (invisible-Unicode duplicate SPN/UPN → Kerberos failure / NTLM downgrade) | Semperis (Aug 2026); patched Mar 2026 | **New angle** (XDR *Suspicious SPN added* targets Kerberoasting, not Unicode collisions) | `IdentityDirectoryEvents`, `IdentityLogonEvents` (NTLM fallback) | Custom detection + dashboard |
+| 4 | **Edge-device service-account abuse** (firewall/VPN LDAP bind account used for AD recon or logons) | CL-STA-1132 via PAN-OS CVE-2026-0300; Qilin affiliates post-VPN; PAYLOAD actor via FortiGate SSL VPN | **Extends** – generic LDAP/SAMR recon alerts are learning-based and don’t treat appliance accounts specially | `IdentityQueryEvents`, `IdentityLogonEvents` | Custom detection (watch-list) + dashboard |
+| 5 | **AD FS DKM container ACL change – CVE-2026-56155** (KEV 14 Jul 2026) | CISA KEV; Alastor write-up | **Extends** – *AD FS DKM key read* and *Golden SAML* fire on read/use, not on the ACL grant that precedes it | `IdentityDirectoryEvents` (permission changes), MDI sensor on AD FS | Custom detection (High) |
+| 6 | **MachineAccountQuota abuse** (non-admin creates computer objects) | Five Eyes guidance (Sep 2026); prerequisite for RBCD, ResetNightmare, Certighost chains | **Extends** – XDR *device addition on-premises*/RBCD alerts fire on later stages | `IdentityDirectoryEvents` `Device Account Created` | Custom detection (Medium) |
+| 7 | **Delegation / pre-auth flag flips** (unconstrained or constrained delegation set; DONT_REQ_PREAUTH set → targeted AS-REP roast) | Five Eyes guidance; Secureware 2026 assessments (AS-REP → DA in 4h) | **Extends** – MDI alerts on *new computer unconstrained delegation*, RBCD, and AS-REP roasting traffic, not on user/service-account flag changes | `IdentityDirectoryEvents` account-attribute changes | Custom detection (Medium/High) |
+| 8 | **Non-default privileged group additions** (DnsAdmins, Cert Publishers, ESX-admin look-alikes, Exchange Windows Permissions, Hyper-V Admins, etc.) | Ransomware ESXi takeover pattern continues in 2026 (PAYLOAD ESXi locker) | **Extends** – *sensitive group addition* only covers groups tagged sensitive | `IdentityDirectoryEvents` `Group Membership changed` | Custom detection (watch-list) |
+| 9 | **NTDS.dit / IFM / VSS extraction on DCs** | Five Eyes guidance (Sep 2026) | **New angle** – adds DC-specific logic alongside generic MDE behaviour alerts | `DeviceProcessEvents` on DCs (MDE is co-installed with sensor v3.x) | Custom detection (High) |
+| 10 | **Trust account (TDO) abuse** – one-way trust bypass using `TRUSTEDDOMAIN$` | Five Eyes guidance (Sep 2026) | **New angle** | `IdentityLogonEvents` | Custom detection (High) |
+| 11 | **RC4 / encryption-type downgrade posture** | RC4 deprecation; KerberLoss downgrade; Five Eyes (4768/4769) | **Extends** – golden-ticket *encryption downgrade* only | `IdentityDirectoryEvents` (`Supported Encryption Types changed`), `IdentityLogonEvents` | Dashboard |
+| 12 | **LAPS / gMSA password attribute reads** by unexpected principals | Secureware 2026 (“LAPS bypass”); Golden gMSA | **Extends** – XDR *sensitive attribute LDAP query* is anomaly-based | `IdentityQueryEvents` | Dashboard + optional detection |
 
-**Gaps with no usable MDI telemetry (flag, don’t build):** Timeroasting (unauthenticated NTP/MS-SNTP – not captured), Silver tickets (no TGS on the DC by design; only indirect PAC-validation signals), GPP `cpassword` reads from SYSVOL (MDI doesn’t log SMB file reads; MDE only sees tooling on the source host).
+**Out of scope – outside what the sensors record (noted, not built):** Timeroasting (unauthenticated NTP/MS-SNTP – not captured), Silver tickets (no TGS on the DC by design; only indirect PAC-validation signals), GPP `cpassword` reads from SYSVOL (MDI doesn’t log SMB file reads; MDE only sees tooling on the source host).
 
-Already covered (not gaps): Certighost CVE-2026-54121, BadSuccessor/dMSA, Golden gMSA, ESC1/8/11/15, shadow credentials, DCSync, NetSync, diamond ticket, CVE-2025-33073.
+Already handled by built-in MDI alerts (deliberately not duplicated): Certighost CVE-2026-54121, BadSuccessor/dMSA, Golden gMSA, ESC1/8/11/15, shadow credentials, DCSync, NetSync, diamond ticket, CVE-2025-33073.
 
 ---
 
@@ -234,26 +236,47 @@ IdentityQueryEvents
 
 ---
 
+## Threat-actor sequences (Microsoft Threat Intelligence, Mar–Sep 2026)
+
+Microsoft's 2026 incident write-ups show that the individual steps are often familiar; what's distinctive is the **order** and the **host** they run on. MDI and MDE already alert on many single steps (password spray, Kerberoasting, remote code execution on a DC, suspicious service creation, NTLM relay, Defender-disabling GPOs, suspicious Entra Connect authentication), so those were left alone. The rules below stitch the steps together so the story arrives as one alert.
+
+| # | Sequence | Reported by Microsoft for | Detection | Telemetry |
+|---|---|---|---|---|
+| 13 | RMM or tunnel tool (MeshAgent, Atera, Splashtop, ScreenConnect, AnyDesk, SimpleHelp, cloudflared, ngrok…) on a DC → NTDS.dit / hive extraction within 24h | Storm-2570 (Sep 2026); Storm-1175 / Medusa (Apr 2026) | `13-rmm-or-tunnel-on-dc-then-ntds.kql` (High) | `DeviceProcessEvents` |
+| 14 | Scheduled task created on a DC → ntdsutil / makecab / archiver runs → task deleted within 15 min | Domain-compromise case (Apr 2026); high-value-asset protection (Mar 2026) | `14-hit-and-run-scheduled-task-on-dc.kql` (High) | `DeviceEvents`, `DeviceProcessEvents` |
+| 15 | GPO change → executable/script **and** ScheduledTasks.xml / Registry.pol / scripts.ini written to that policy's SYSVOL folder within 30 min | GPO-based ransomware case (Mar 2026); Storm-1175 (Apr 2026) | `15-gpo-deployment-chain.kql` (High) | `IdentityDirectoryEvents`, `DeviceFileEvents` |
+| 16 | Privileged / high-criticality account's password reset by a different, non-approved account → that account signs in within 24h | Domain-compromise case (Apr 2026) | `16-privileged-password-reset-then-use.kql` (High) | `IdentityDirectoryEvents`, `IdentityLogonEvents`, `IdentityInfo` |
+| 17 | wmiexec / atexec / psexec / smbexec / WinRM execution on an Entra Connect or Cloud Sync server | Domain-compromise case (Apr 2026); high-value-asset protection (Mar 2026) | `17-remote-exec-into-entra-connect.kql` (High) | `DeviceProcessEvents` |
+| 18 | Defender tampering on a DC (registry, `Set/Add-MpPreference`, `sc stop WinDefend`) → PsExec `@hostlist`, PDQ or forced remote GPUpdate from that DC within 2h | Storm-2570 (Sep 2026); Storm-1175 (Apr 2026) | `18-defender-tamper-on-dc-then-mass-deploy.kql` (High) | `DeviceRegistryEvents`, `DeviceProcessEvents` |
+| 19 | Quick Assist / silent MSI from PowerShell / Node.js in AppData on a workstation → `net … /domain`, nltest, ADSI recon or WinRM to a DC/Tier-0 host within 4h | Teams IT-support impersonation campaign (Sep 2026) | `19-helpdesk-remote-session-to-tier0-winrm.kql` (Medium) | `DeviceProcessEvents`, `DeviceNetworkEvents` |
+
+**Dashboard additions:** an *AD kill-chain progression* tile that flags any account reaching 3+ stages in a week (heavy recon, resetting other accounts' passwords, group changes, GPO edits, remote logons to DCs), plus tiles for RMM/tunnel tools on Tier 0, privileged password resets by actor, and inbound WinRM/RDP to Tier 0 by source.
+
+**Caveats:** some command details in the Microsoft posts appear only in screenshots, so the string matches are deliberately broad. Sequence 14 assumes MDE emits `ScheduledTaskCreated`/`ScheduledTaskDeleted` on your DCs. Sequence 16 relies on `IdentityInfo` criticality or tags being populated.
+
+---
+
 ## Deliverables and how to deploy
 
 The inline KQL above shows the approach. The deployable, hardened versions are separate files, and those are the ones to use:
 
 | Path | What it is |
 |---|---|
-| `detections\01a…12-optional….kql` | 14 custom-detection queries for gaps 1–10, plus optional gap 12. Each projects `Timestamp`, `ReportId` and the entity columns. |
+| `detections\01a…12-optional….kql` | 14 custom-detection queries for items 1–10, plus optional item 12. Each projects `Timestamp`, `ReportId` and the entity columns. |
+| `detections\13…19-*.kql` | 7 sequence detections based on Microsoft Threat Intelligence reporting (see *Threat-actor sequences* above). |
 | `detections\rules.json` | Rule metadata: title, severity, MITRE technique, entity mapping, recommended actions. Rule 12 has `"deploy": false`. |
 | `Deploy-CustomDetections.ps1` | Creates the rules through Microsoft Graph (`/beta/security/rules/detectionRules`, scope `CustomDetection.ReadWrite.All`). |
-| `dashboards\AD-Gap-Workbook.json` | Sentinel workbook with tiles for gaps 11, 12, 3 (NTLM downgrade) and 4 (edge-account activity). |
+| `dashboards\AD-Gap-Workbook.json` | Sentinel workbook with posture tiles for items 11, 12, 3 (NTLM downgrade) and 4 (edge-account activity), plus four sequence tiles (kill-chain progression, RMM on Tier 0, privileged resets by actor, WinRM/RDP into Tier 0). |
 | `dashboards\hunting\*.kql` | The same dashboard tiles as Advanced Hunting queries, plus Query 0 (discovery) and a ResetNightmare follow-up hunt. |
 
 **Steps**
 1. Run `dashboards\hunting\00-discover-action-types.kql` and adjust the string matches to the values your tenant actually emits.
-2. Fill in every `// TUNE` list: GpoAdmins, EdgeAccounts/EdgeIPs, ApprovedJoiners, KnownDelegationTargets, TrustAccounts, ExtraDCs (optional) and ApprovedReaders (rule 12).
+2. Fill in every `// TUNE` list: GpoAdmins, EdgeAccounts/EdgeIPs, ApprovedJoiners, KnownDelegationTargets, TrustAccounts, ExtraDCs (optional), ApprovedReaders (rule 12), ApprovedRmm, ApprovedResetters, ExtraEntraConnect and TierZeroExtra.
 3. Run each query in Advanced Hunting over 30 days, replacing `ago(1h)` with `ago(30d)`, and tune out the noise.
 4. Run `.\Deploy-CustomDetections.ps1 -WhatIf`. Then run `.\Deploy-CustomDetections.ps1`, which creates the rules disabled. Add `-Enable` to create them enabled and `-IncludeOptional` to include rule 12. Rules that already exist with the same display name are skipped.
 5. Import the workbook in Sentinel (Workbooks → Add → Advanced editor → paste the JSON). This needs the Defender XDR connector to stream the Identity* tables. Without Sentinel, save the `dashboards\hunting` queries as shared Advanced Hunting queries instead.
 
-**Validation status:** all 28 queries (detections, hunting and workbook tiles) parse cleanly with Kusto.Language against an Identity*/Device* schema. The deploy script's `-WhatIf` run builds all 14 payloads. None of this has been run against a live tenant.
+**Validation status:** all 43 queries (21 detections, 12 hunting queries, 10 workbook tiles) parse cleanly with Kusto.Language against an Identity*/Device* schema. The deploy script's `-WhatIf -IncludeOptional` run builds all 21 payloads. None of this has been run against a live tenant.
 
 ## Deployment notes
 
@@ -270,3 +293,9 @@ The inline KQL above shows the approach. The deployable, hardened versions are s
 - CVE-2026-56155 AD FS DKM ACL EoP (CISA KEV, 14 Jul 2026)
 - SecPod KEV review Apr–Sep 2026 (CL-STA-1132 / PAN-OS CVE-2026-0300, Qilin)
 - Secureware, *Active Directory Attack Paths in 2026* (24 Apr 2026)
+- Microsoft Threat Intelligence, *Beyond ransomware: tracking Storm-2570's consistent tradecraft across deployments* (24 Sep 2026) – https://www.microsoft.com/en-us/security/blog/2026/09/24/beyond-ransomware-tracking-storm-2570-consistent-tradecraft-across-deployments/
+- Microsoft Threat Intelligence, *Impersonating IT support: threat actors turn remote session into enterprise-wide access* (2 Sep 2026) – https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/
+- Microsoft Security, *Domain compromise: predictive shielding shut down lateral movement* (17 Apr 2026) – https://www.microsoft.com/en-us/security/blog/2026/04/17/domain-compromise-predictive-shielding-shut-down-lateral-movement/
+- Microsoft Threat Intelligence, *Storm-1175 focuses gaze on vulnerable web-facing assets in high-tempo Medusa ransomware operations* (6 Apr 2026) – https://www.microsoft.com/en-us/security/blog/2026/04/06/storm-1175-focuses-gaze-on-vulnerable-web-facing-assets-in-high-tempo-medusa-ransomware-operations/
+- Microsoft Security, *How Microsoft Defender protects high-value assets* (27 Mar 2026) – https://www.microsoft.com/en-us/security/blog/2026/03/27/microsoft-defender-protects-high-value-assets/
+- Microsoft Security, *Case study: predictive shielding – Defender stopped GPO-based ransomware before it started* (23 Mar 2026) – https://www.microsoft.com/en-us/security/blog/2026/03/23/case-study-predictive-shielding-defender-stopped-gpo-based-ransomware-before-started/

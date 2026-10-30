@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Creates the AD gap custom detection rules in Microsoft Defender XDR through the Microsoft Graph
+  Creates the AD visibility-layer custom detection rules in Microsoft Defender XDR through the Microsoft Graph
   (beta) security/rules/detectionRules API.
 
 .DESCRIPTION

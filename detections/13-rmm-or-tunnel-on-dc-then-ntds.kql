@@ -1,0 +1,30 @@
+// AD Sequence 13 - RMM or tunnel tool lands on a DC, then NTDS.dit / hive extraction follows within 24h
+// Source: Microsoft Threat Intelligence - Storm-2570 (Sep 2026) and Storm-1175/Medusa (Apr 2026) both stage
+// RMM/tunnelling tools on DCs before credential-database theft. Alerts on the second step; the first step adds context.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let ApprovedRmm = dynamic([]);   // TUNE: RMM/tunnel binaries sanctioned on DCs, e.g. "screenconnect.clientservice.exe"
+let RmmTools = dynamic(["meshagent", "meshcentral", "atera", "splashtop", "ninjarmm", "screenconnect", "anydesk",
+    "simplehelp", "remote access.exe", "level.exe", "dwagent", "remotely", "cloudflared", "ngrok", "tacticalrmm", "rustdesk"]);
+let DCs = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+let Rmm = DeviceProcessEvents
+    | where Timestamp > ago(25h)
+    | extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+    | where ShortName in (DCs)
+    | where FileName has_any (RmmTools) or ProcessCommandLine has_any (RmmTools)
+    | where not(tolower(FileName) in (ApprovedRmm))
+    | summarize RmmFirstSeen = min(Timestamp), RmmTools = make_set(FileName, 10), RmmCommandLines = make_set(ProcessCommandLine, 5)
+        by DeviceId;
+let Extraction = DeviceProcessEvents
+    | where Timestamp > ago(1h)
+    | where (FileName =~ "ntdsutil.exe" and ProcessCommandLine has_any ("ifm", "create full", "snapshot"))
+        or (ProcessCommandLine has "ntds.dit" and ProcessCommandLine has_any ("copy", "esentutl", "robocopy", "xcopy", "HarddiskVolumeShadowCopy"))
+        or (FileName =~ "esentutl.exe" and ProcessCommandLine has "/vss")
+        or (FileName =~ "reg.exe" and ProcessCommandLine has "save" and ProcessCommandLine has_any ("hklm\\system", "hklm\\sam", "hklm\\security"));
+Extraction
+| join kind=inner Rmm on DeviceId
+| where Timestamp between (RmmFirstSeen .. (RmmFirstSeen + 24h))
+| project Timestamp, ReportId, DeviceId, DeviceName, AccountName, AccountDomain, AccountSid, FileName, ProcessCommandLine,
+    InitiatingProcessFileName, RmmFirstSeen, RmmTools, RmmCommandLines

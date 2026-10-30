@@ -1,4 +1,4 @@
-// Gap 7 - Delegation enabled or Kerberos pre-authentication disabled on a user/service/computer account
+// AD Visibility 7 - Delegation enabled or Kerberos pre-authentication disabled on a user/service/computer account
 // DONT_REQ_PREAUTH -> targeted AS-REP roast; TRUSTED_FOR_DELEGATION / AllowedToDelegateTo -> impersonation.
 let KnownDelegationTargets = dynamic([]);   // TUNE: accounts/hosts that legitimately need delegation
 IdentityDirectoryEvents

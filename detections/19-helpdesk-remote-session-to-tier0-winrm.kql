@@ -1,0 +1,38 @@
+// AD Sequence 19 - Fake "IT support" remote session on a workstation, then AD recon or WinRM to a DC/CA within 4h
+// Source: Microsoft Threat Intelligence - Teams IT-support impersonation campaign (Sep 2026): Quick Assist or a
+// silently installed MSI/Node payload gives hands-on access, followed by domain discovery and WinRM to Tier 0.
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let TierZeroExtra = dynamic([]);   // TUNE: IPs of other Tier-0 hosts (CAs, AD FS, Entra Connect, PAWs)
+let DcIps = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationIPAddress)
+    | summarize by Ip = DestinationIPAddress
+    | union (print Ip = TierZeroExtra | mv-expand Ip to typeof(string));
+let DcNames = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Dc = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Dc = ExtraDCs | mv-expand Dc to typeof(string) | extend Dc = tolower(Dc));
+let Entry = DeviceProcessEvents
+    | where Timestamp > ago(5h)
+    | where FileName =~ "quickassist.exe"
+        or (FileName =~ "msiexec.exe" and ProcessCommandLine has_any ("/qn", "/quiet") and InitiatingProcessFileName in~ ("powershell.exe", "pwsh.exe", "cmd.exe"))
+        or (FileName =~ "node.exe" and FolderPath has @"\AppData\")
+    | extend ShortName = tolower(tostring(split(DeviceName, ".")[0]))
+    | where not(ShortName in (DcNames))
+    | summarize EntryTime = min(Timestamp), EntryEvidence = make_set(strcat(FileName, " ", ProcessCommandLine), 5) by DeviceId;
+let Recon = DeviceProcessEvents
+    | where Timestamp > ago(1h)
+    | where (FileName in~ ("net.exe", "net1.exe") and ProcessCommandLine has "/domain")
+        or (FileName =~ "nltest.exe" and ProcessCommandLine has_any ("/dclist", "/domain_trusts", "/dsgetdc"))
+        or (FileName in~ ("powershell.exe", "pwsh.exe") and ProcessCommandLine has_any ("[adsisearcher]", "[adsi]", "DirectorySearcher", "Get-ADUser", "Get-ADGroupMember", "Get-ADComputer"))
+    | project Timestamp, ReportId, DeviceId, DeviceName, AccountName, AccountDomain, Stage2 = "AD recon", Stage2Detail = ProcessCommandLine;
+let WinRm = DeviceNetworkEvents
+    | where Timestamp > ago(1h)
+    | where RemotePort in (5985, 5986) and ActionType in ("ConnectionSuccess", "ConnectionAttempt")
+    | where RemoteIP in (DcIps)
+    | project Timestamp, ReportId, DeviceId, DeviceName, AccountName = InitiatingProcessAccountName,
+        AccountDomain = InitiatingProcessAccountDomain, Stage2 = "WinRM to Tier 0",
+        Stage2Detail = strcat(RemoteIP, ":", RemotePort, " ", InitiatingProcessCommandLine);
+union Recon, WinRm
+| join kind=inner Entry on DeviceId
+| where Timestamp between (EntryTime .. (EntryTime + 4h))
+| project Timestamp, ReportId, DeviceId, DeviceName, AccountName, AccountDomain, Stage2, Stage2Detail, EntryTime, EntryEvidence

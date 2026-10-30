@@ -1,0 +1,18 @@
+// Dashboard tile for sequences 17 and 19: inbound WinRM / RDP / SMB remote-admin sessions to Tier-0 hosts, by source
+// Source: Microsoft Threat Intelligence - Teams IT-support campaign (Sep 2026), domain-compromise case (Apr 2026)
+let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
+let Tier0 = IdentityLogonEvents
+    | where Timestamp > ago(7d) and Protocol in~ ("Kerberos", "Ntlm") and isnotempty(DestinationDeviceName)
+    | summarize by Host = tolower(tostring(split(DestinationDeviceName, ".")[0]))
+    | union (print Host = ExtraDCs | mv-expand Host to typeof(string) | extend Host = tolower(Host))
+    | union (DeviceProcessEvents | where Timestamp > ago(14d) and FileName =~ "miiserver.exe"
+        | summarize by Host = tolower(tostring(split(DeviceName, ".")[0])));
+DeviceNetworkEvents
+| where Timestamp > ago(30d)
+| where ActionType == "InboundConnectionAccepted" and LocalPort in (5985, 5986, 3389)
+| extend Host = tolower(tostring(split(DeviceName, ".")[0]))
+| where Host in (Tier0)
+| extend Service = case(LocalPort in (5985, 5986), "WinRM", "RDP")
+| summarize Sessions = count(), FirstSeen = min(Timestamp), LastSeen = max(Timestamp), Targets = make_set(DeviceName, 10)
+    by SourceIP = RemoteIP, Service
+| order by FirstSeen desc

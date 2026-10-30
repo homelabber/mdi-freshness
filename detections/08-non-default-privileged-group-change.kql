@@ -1,4 +1,4 @@
-// Gap 8 - Additions to privileged groups MDI does not treat as sensitive by default (+ removals from Protected Users)
+// AD Visibility 8 - Additions to tier-0-adjacent groups outside the default MDI sensitive-group list (+ removals from Protected Users)
 let WatchGroups = dynamic(["DnsAdmins", "Cert Publishers", "Exchange Windows Permissions", "Exchange Trusted Subsystem",
     "Organization Management", "Hyper-V Administrators", "Remote Management Users", "Event Log Readers",
     "Group Policy Creator Owners", "Key Admins", "Enterprise Key Admins", "ESX Admins", "ESXi Admins",

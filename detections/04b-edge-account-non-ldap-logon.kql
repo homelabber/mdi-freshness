@@ -1,4 +1,4 @@
-// Gap 4b - Firewall/VPN service account used for anything other than LDAP binds from the appliance
+// AD Visibility 4b - Firewall/VPN service account used for anything other than LDAP binds from the appliance
 // (interactive, RDP, SMB/resource access, or binds from another IP = stolen credential reuse)
 let EdgeAccounts = dynamic([]);   // TUNE: same list as 04a
 let EdgeIPs = dynamic([]);        // TUNE: same list as 04a

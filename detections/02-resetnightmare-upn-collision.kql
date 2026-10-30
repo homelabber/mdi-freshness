@@ -1,4 +1,4 @@
-// Gap 2 - ResetNightmare (CVE-2026-27912): UPN set to a bare value equal to ANOTHER account's sAMAccountName
+// AD Visibility 2 - ResetNightmare (CVE-2026-27912): UPN set to a bare value equal to ANOTHER account's sAMAccountName
 // The attacker then requests a TGT as NT-ENTERPRISE and resets the victim's password via kpasswd (464).
 let Sams = IdentityInfo
     | where Timestamp > ago(14d)

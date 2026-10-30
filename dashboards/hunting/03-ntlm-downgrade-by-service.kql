@@ -1,4 +1,4 @@
-// Dashboard tile for gap 3: services whose daily NTLM share jumped from <10% to >50% (Kerberos failure / KerberLoss symptom)
+// Dashboard tile for posture item 3: services whose daily NTLM share jumped from <10% to >50% (Kerberos failure / KerberLoss symptom)
 IdentityLogonEvents
 | where Timestamp > ago(14d) and ActionType == "LogonSuccess"
 | where isnotempty(DestinationDeviceName) and Protocol in~ ("Kerberos", "Ntlm")

@@ -1,4 +1,4 @@
-// Dashboard tile for gap 4: daily activity of firewall/VPN bind accounts (queries, logons, source IPs)
+// Dashboard tile for posture item 4: daily activity of firewall/VPN bind accounts (queries, logons, source IPs)
 let EdgeAccounts = dynamic([]);   // TUNE: same list as detections 04a/04b
 union
     (IdentityQueryEvents | where Timestamp > ago(30d) and AccountName in~ (EdgeAccounts) | extend Kind = "Query", Detail = QueryType),

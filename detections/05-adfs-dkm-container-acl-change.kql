@@ -1,4 +1,4 @@
-// Gap 5 - Permission/owner change on the AD FS DKM container (CVE-2026-56155, CISA KEV 14 Jul 2026)
+// AD Visibility 5 - Permission/owner change on the AD FS DKM container (CVE-2026-56155, CISA KEV 14 Jul 2026)
 // MDI alerts on the later DKM key read / Golden SAML use, not on the ACL grant that enables it.
 IdentityDirectoryEvents
 | where Timestamp > ago(1h)

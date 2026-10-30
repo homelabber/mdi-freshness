@@ -1,4 +1,4 @@
-// Gap 9 - NTDS.dit theft: ntdsutil IFM/snapshot, ntds.dit copies, esentutl /vss, and shadow copies on DCs (MDE)
+// AD Visibility 9 - NTDS.dit theft: ntdsutil IFM/snapshot, ntds.dit copies, esentutl /vss, and shadow copies on DCs (MDE)
 // DCs are derived from the hosts MDI sees authenticating requests; add names to ExtraDCs if needed.
 let ExtraDCs = dynamic([]);   // TUNE: optional short host names of DCs
 let DCs = IdentityLogonEvents

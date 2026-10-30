@@ -1,4 +1,4 @@
-// Gap 6 - Computer account created by a non-privileged user (ms-DS-MachineAccountQuota abuse)
+// AD Visibility 6 - Computer account created by a non-privileged user (ms-DS-MachineAccountQuota abuse)
 // First step of RBCD, ResetNightmare and Certighost chains.
 let ApprovedJoiners = dynamic([]);   // TUNE: domain-join / imaging accounts, e.g. "svc-sccm","svc-mdt"
 IdentityDirectoryEvents

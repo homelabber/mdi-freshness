@@ -1,4 +1,4 @@
-// Gap 1c - Executable / script / scheduled-task payloads written into SYSVOL Policies (MDE on DCs)
+// AD Visibility 1c - Executable / script / scheduled-task payloads written into SYSVOL Policies (MDE on DCs)
 // GPMC/remote writes arrive over SMB, so the writer is in RequestAccountName, not InitiatingProcessAccountName.
 let GpoAdmins = dynamic([]);   // TUNE: same list as 01a
 DeviceFileEvents

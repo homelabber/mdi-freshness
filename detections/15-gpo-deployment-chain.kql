@@ -1,0 +1,35 @@
+// AD Sequence 15 - GPO change followed by a payload or immediate task dropped into that policy's SYSVOL folder
+// Source: Microsoft Threat Intelligence - GPO-based ransomware case (Mar 2026) and Storm-1175/Medusa (Apr 2026):
+// a GPO is edited, then ScheduledTasks.xml / Registry.pol plus an executable or script are written under SYSVOL\Policies.
+let GpoAdmins = dynamic([]);   // TUNE: sAMAccountNames allowed to manage GPOs (lowers severity, not suppressed)
+let GpoChanges = IdentityDirectoryEvents
+    | where Timestamp > ago(2h)
+    | extend AF = tostring(AdditionalFields)
+    | where ActionType has_any ("Group Policy", "GPO", "gPLink")
+        or AF has_any ("gPLink", "groupPolicyContainer", "gPCFileSysPath", "gPCMachineExtensionNames")
+    | project GpoTime = Timestamp, GpoActionType = ActionType, GpoActor = AccountName, GpoActorDomain = AccountDomain,
+        GpoDetails = AdditionalFields;
+let SysvolDrops = DeviceFileEvents
+    | where Timestamp > ago(1h)
+    | where ActionType in ("FileCreated", "FileModified", "FileRenamed")
+    | where FolderPath has @"\Policies\" and (FolderPath has "SYSVOL" or FolderPath has @"\sysvol\")
+    | extend Ext = tolower(tostring(split(FileName, ".")[-1]))
+    | where Ext in ("exe", "dll", "bat", "cmd", "ps1", "vbs", "js", "hta", "msi")
+        or FileName in~ ("ScheduledTasks.xml", "Registry.pol", "scripts.ini", "psscripts.ini", "Files.xml")
+    | extend PolicyGuid = extract(@"(?i)\\Policies\\(\{[0-9a-f\-]{36}\})", 1, FolderPath);
+let Bursts = SysvolDrops
+    | summarize arg_max(Timestamp, ReportId), Files = make_set(FileName, 20),
+        HasPayload = countif(Ext in ("exe", "dll", "bat", "cmd", "ps1", "vbs", "js", "hta", "msi")) > 0,
+        HasTrigger = countif(FileName in~ ("ScheduledTasks.xml", "Registry.pol", "scripts.ini", "psscripts.ini", "Files.xml")) > 0,
+        Writers = make_set(InitiatingProcessAccountName, 5)
+        by DeviceId, DeviceName, PolicyGuid
+    | where HasPayload and HasTrigger;
+Bursts
+| extend joinKey = 1
+| join kind=inner (GpoChanges | extend joinKey = 1) on joinKey
+| where abs(datetime_diff("minute", Timestamp, GpoTime)) <= 30
+| extend SamePolicy = isnotempty(PolicyGuid) and tostring(GpoDetails) has PolicyGuid
+| summarize arg_max(SamePolicy, *) by DeviceId, PolicyGuid
+| extend ApprovedGpoAdmin = GpoActor in~ (GpoAdmins)
+| project Timestamp, ReportId, SamePolicy, DeviceId, DeviceName, PolicyGuid, Files, Writers, GpoTime, GpoActionType,
+    AccountName = GpoActor, AccountDomain = GpoActorDomain, ApprovedGpoAdmin, GpoDetails

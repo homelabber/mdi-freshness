@@ -1,5 +1,5 @@
-// Gap 1a - GPO created/modified/linked by an account that is not an approved GPO admin
-// Context: Kaspersky GERT "PAYLOAD" GPO extortion (Sep 2026). MDI only alerts on GPOs that disable Defender AV.
+// AD Visibility 1a - GPO created/modified/linked by an account that is not an approved GPO admin
+// Context: Kaspersky GERT "PAYLOAD" GPO extortion (Sep 2026). Complements the MDI Group Policy Tampering alert (Defender-disable GPOs) by covering every GPO edit.
 let GpoAdmins = dynamic([]);   // TUNE: sAMAccountNames allowed to manage GPOs, e.g. "svc-gpo-mgmt"
 IdentityDirectoryEvents
 | where Timestamp > ago(1h)
