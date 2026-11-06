@@ -266,6 +266,7 @@ The inline KQL above shows the approach. The deployable, hardened versions are s
 | `detections\13…19-*.kql` | 7 sequence detections based on Microsoft Threat Intelligence reporting (see *Threat-actor sequences* above). |
 | `detections\rules.json` | Rule metadata: title, severity, MITRE technique, entity mapping, recommended actions. Rule 12 has `"deploy": false`. |
 | `Deploy-CustomDetections.ps1` | Creates the rules through Microsoft Graph (`/beta/security/rules/detectionRules`, scope `CustomDetection.ReadWrite.All`). |
+| `Export-Html.ps1` | Exports this write-up, every detection, hunting query and workbook tile to one self-contained HTML file (`export\mdi-freshness.html`). |
 | `dashboards\AD-Gap-Workbook.json` | Sentinel workbook with posture tiles for items 11, 12, 3 (NTLM downgrade) and 4 (edge-account activity), plus four sequence tiles (kill-chain progression, RMM on Tier 0, privileged resets by actor, WinRM/RDP into Tier 0). |
 | `dashboards\hunting\*.kql` | The same dashboard tiles as Advanced Hunting queries, plus Query 0 (discovery) and a ResetNightmare follow-up hunt. |
 

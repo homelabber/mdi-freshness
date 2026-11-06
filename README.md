@@ -16,6 +16,7 @@ No new agents, sensors or licences. You only ask better questions of data you al
 | `detections\rules.json` | Rule metadata (names, severity, MITRE mapping, deploy flags). |
 | `Deploy-CustomDetections.ps1` | Creates the rules in Defender XDR through Microsoft Graph. Supports `-WhatIf`, `-Enable` and `-IncludeOptional`. |
 | `dashboards\AD-Gap-Workbook.json` | Sentinel workbook with **10 tiles**: crypto/NTLM posture, edge-account activity, LAPS/gMSA reads, plus the sequence views listed below. |
+| `Export-Html.ps1` | Exports everything to **one self-contained HTML file** for offline review, change boards and people who prefer browsers to Git. |
 | `dashboards\hunting\` | **12 Advanced Hunting queries**: the same views for tenants without Sentinel, plus an ActionType discovery helper. |
 
 ## The sequences (Microsoft Threat Intelligence, Mar–Sep 2026)
@@ -49,6 +50,25 @@ Single steps that MDI or MDE already alert on (spray, Kerberoasting, remote code
    ```
    Add `-Enable` once you're happy with the noise level.
 5. **Dashboard.** In Sentinel, go to Workbooks → Add → Advanced editor and paste `AD-Gap-Workbook.json`. This needs the Defender XDR connector to stream the Identity* tables. No Sentinel? Save the `dashboards\hunting` queries as shared Advanced Hunting queries.
+
+## HTML export
+
+Sometimes the change advisory board wants a document, not a repo link. `Export-Html.ps1` packs the write-up, all 21 detections (metadata, MITRE links and KQL), the hunting queries and the workbook tiles into a single HTML file. It has no external CSS, scripts or fonts, so it opens offline and survives being emailed.
+
+```powershell
+Unblock-File .\Export-Html.ps1
+.\Export-Html.ps1                                   # writes export\mdi-freshness.html
+.\Export-Html.ps1 -OutputPath C:\temp\ad.html -Open # custom path, opens in your browser
+```
+
+The page includes:
+
+- A filter box that searches names, MITRE IDs and categories.
+- Copy buttons on every query.
+- Severity badges.
+- A **TUNE** flag on any rule whose allow-lists are still empty, which makes it a useful pre-deployment checklist.
+
+The page follows your light or dark theme, and printing it expands every section. The write-up is rendered as Markdown on PowerShell 7+; on Windows PowerShell 5.1 it is embedded as plain text. The `export\` folder is git-ignored.
 
 ## Upgrading from an earlier version
 
